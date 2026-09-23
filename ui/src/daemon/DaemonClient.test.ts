@@ -1,9 +1,44 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DaemonCommandTimeoutError, sendDaemonCommand } from "./DaemonClient";
+import { DaemonCommandTimeoutError, parseDaemonEvent, sendDaemonCommand } from "./DaemonClient";
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("parseDaemonEvent", () => {
+  it("rejects malformed peer lifecycle and discovery events", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "pair_accepted", connected: true }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "discovery_result", devices: [{ name: "Phone" }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "discovery_result",
+      devices: [{ name: "Phone", fingerprint: "peer", addresses: [{ address: "10.0.0.2", port: 70_000 }] }],
+    }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "state_snapshot",
+      paired_devices: [],
+      pending_pairs: [],
+      connected_clients: [],
+      discovered_devices: [],
+      mdns_available: true,
+      clipboard_available: true,
+    }))).toBeUndefined();
+  });
+
+  it("accepts complete peer lifecycle events, including pre-TLS rejection", () => {
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "pair_accepted",
+      fingerprint: "peer-1",
+      connected: true,
+    }))).toMatchObject({ command: "pair_accepted", fingerprint: "peer-1" });
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "pair_rejected",
+      fingerprint: "",
+      device_name: "Nearby phone",
+      address: "10.0.0.2",
+      reason: "unreachable",
+    }))).toMatchObject({ command: "pair_rejected", reason: "unreachable" });
+  });
 });
 
 describe("sendDaemonCommand", () => {

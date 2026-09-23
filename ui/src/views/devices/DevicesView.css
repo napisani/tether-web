@@ -73,6 +73,14 @@
   overflow-y: auto;
 }
 
+.devices-view .device-group-heading {
+  margin: 14px 10px 6px;
+  color: var(--color-text-quiet);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .devices-view .device-row {
   width: 100%;
   display: grid;
@@ -225,6 +233,25 @@
   font-family: var(--font-mono);
   font-size: 13px;
   letter-spacing: 0.04em;
+}
+
+.devices-view .peer-fingerprint {
+  display: grid;
+  gap: 3px;
+  margin: 12px 0 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.devices-view .peer-fingerprint code {
+  max-width: min(100%, 42rem);
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .devices-view .connection-pill {
@@ -556,6 +583,11 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+.devices-view .route-detail {
+  color: var(--color-text-muted);
+  line-height: 1.55;
 }
 
 .devices-view .airpods-battery {

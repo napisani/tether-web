@@ -55,7 +55,7 @@ its ownership should still make the GTK/Web relationship obvious.
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
 | App shell | Partial | Shared header, GTK tab order, route status footer | View switching, shortcuts, settings entry, shared unread state |
-| Devices | Partial | Bluetooth discovery, candidate retention, pairing, unpairing, numeric confirmation, connection capabilities, AirPods battery/in-ear state, connect/disconnect, management, listening mode, pause behavior, and call handoff | Wi-Fi peers and trust, file sending and drop zone, Bluetooth setup/solicitation controls |
+| Devices | Partial | Wi-Fi discovery, incoming/outgoing trust, online/offline state, forget flow, mDNS/firewall guidance; Bluetooth discovery, pairing and connection capabilities; complete AirPods controls | File sending and drop zone, Bluetooth setup/solicitation controls |
 | Messages | Not started | Navigation placeholder | Threads, search, conversation, drafts, compose/send, read state, permission guidance |
 | Notifications | Not started | Navigation placeholder | Notification list, refresh, removal, dismissal, connection guidance |
 | Calls | Not started | Navigation placeholder | Availability, call list, dial, answer, hang up, audio routing, network state |
@@ -70,9 +70,9 @@ user-visible capability.
 
 1. **Keep the common shell stable.** Route all daemon traffic through one client,
    keep app-wide navigation/status in `app/`, and keep feature state in its view.
-2. **Finish Devices parity.** AirPods controls are complete. Add Wi-Fi peer
-   management and file transfer, then the remaining Bluetooth controls. Preserve
-   the current pairing workflow while adding the missing operations.
+2. **Finish Devices parity.** AirPods and Wi-Fi peer management are complete.
+   Add file transfer and the remaining Bluetooth controls. Preserve the current
+   pairing workflow while adding the missing operations.
 3. **Add Messages.** Mirror thread visibility refresh, conversation selection,
    drafts, compose/send state, errors, and disconnect cleanup. Add shared contact
    completion and message formatting as those dependencies appear.
@@ -113,6 +113,15 @@ code. They are decisions to review, not implicit omissions.
 - AirPods state is retained by the gateway and requested whenever its daemon
   connection starts, because browser tabs may attach after the daemon's initial
   AirPods event.
+- Wi-Fi peers use daemon-owned fingerprints and trust decisions. The browser
+  displays the fingerprint before approval, requests discovery after each daemon
+  reconnect, and presents browser-specific clipboard-permission wording instead
+  of GTK compositor diagnostics. Discovery and outbound pairing have bounded
+  client timeouts.
+- Wi-Fi discovery and pairing events do not carry operation IDs. The browser
+  serializes its own discovery and outbound-pair operations, scopes failures by
+  a local token or peer fingerprint where the protocol permits it, and treats
+  each valid discovery result as the daemon's latest authoritative snapshot.
 - The current daemon's AirPods connection result has no operation ID or device
   address. The browser scopes pending state to the selected address, prevents a
   duplicate operation for that device in one tab, and times out a missing result; fully rejecting

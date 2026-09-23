@@ -4,6 +4,8 @@ import type {
   BluetoothDevice,
   BluetoothStatusEvent,
   DaemonEvent,
+  DiscoveredPeer,
+  StateSnapshotEvent,
 } from "../../protocol";
 
 export type PairingPhase = "idle" | "pairing" | "confirming" | "complete" | "error";
@@ -19,6 +21,28 @@ export type PairingState = {
   message?: string;
 };
 
+export type WifiPeer = {
+  fingerprint: string;
+  name: string;
+  address?: string;
+  port: number;
+  paired: boolean;
+  connected: boolean;
+  pending: boolean;
+};
+
+export type WifiState = {
+  peers: WifiPeer[];
+  mdnsAvailable: boolean;
+  clipboardAvailable: boolean;
+  firewallActive: boolean;
+  discovering: boolean;
+  discoveryToken?: string;
+  pairingFingerprint?: string;
+  pairingToken?: string;
+  message?: string;
+};
+
 export type DevicesState = {
   bluetooth?: BluetoothStatusEvent;
   connection?: BluetoothConnectionEvent;
@@ -30,12 +54,20 @@ export type DevicesState = {
   airpodsConnectingAddress?: string;
   airpodsConnectingToken?: string;
   airpodsMessage?: { address?: string; text: string };
+  wifi: WifiState;
 };
 
 export const initialDevicesState: DevicesState = {
   devices: [],
   scanning: false,
   pairing: { phase: "idle" },
+  wifi: {
+    peers: [],
+    mdnsAvailable: true,
+    clipboardAvailable: true,
+    firewallActive: false,
+    discovering: false,
+  },
 };
 
 export type DevicesAction =
@@ -49,7 +81,14 @@ export type DevicesAction =
   | { type: "pair-reset" }
   | { type: "airpods-connect-started"; address: string; token: string }
   | { type: "airpods-connect-timeout"; address: string; token: string }
-  | { type: "airpods-command-failed"; message: string; address?: string; connect: boolean };
+  | { type: "airpods-command-failed"; message: string; address?: string; connect: boolean }
+  | { type: "peer-discovery-started"; token: string }
+  | { type: "peer-discovery-failed"; token: string; message: string }
+  | { type: "peer-discovery-timeout"; token: string }
+  | { type: "peer-pair-started"; fingerprint: string; token: string }
+  | { type: "peer-pair-failed"; fingerprint: string; token: string; message: string }
+  | { type: "peer-pair-timeout"; fingerprint: string; token: string }
+  | { type: "peer-command-failed"; message: string };
 
 export function reduceDevicesState(state: DevicesState, action: DevicesAction): DevicesState {
   switch (action.type) {
@@ -110,6 +149,16 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         airpodsMessage: state.airpodsConnectingAddress
           ? { address: state.airpodsConnectingAddress, text: "Connection to tetherd was lost. Try again after it reconnects." }
           : state.airpodsMessage,
+        wifi: {
+          ...state.wifi,
+          discovering: false,
+          discoveryToken: undefined,
+          pairingFingerprint: undefined,
+          pairingToken: undefined,
+          message: state.wifi.discovering || state.wifi.pairingFingerprint
+            ? "Wi-Fi operation stopped while Tether reconnects."
+            : state.wifi.message,
+        },
         pairing: operationInProgress
           ? {
               ...state.pairing,
@@ -145,11 +194,123 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         airpodsConnectingToken: action.connect ? undefined : state.airpodsConnectingToken,
         airpodsMessage: { address: action.address, text: action.message },
       };
+    case "peer-discovery-started":
+      return {
+        ...state,
+        wifi: { ...state.wifi, discovering: true, discoveryToken: action.token, message: "Looking for nearby devices…" },
+      };
+    case "peer-discovery-failed":
+      if (state.wifi.discoveryToken !== action.token) return state;
+      return {
+        ...state,
+        wifi: { ...state.wifi, discovering: false, discoveryToken: undefined, message: action.message },
+      };
+    case "peer-discovery-timeout":
+      if (state.wifi.discoveryToken !== action.token) return state;
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          discovering: false,
+          discoveryToken: undefined,
+          message: "No discovery result arrived from tetherd. Try scanning again.",
+        },
+      };
+    case "peer-pair-started":
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          pairingFingerprint: action.fingerprint,
+          pairingToken: action.token,
+          message: "Sending pair request…",
+        },
+      };
+    case "peer-pair-failed":
+      if (state.wifi.pairingFingerprint !== action.fingerprint || state.wifi.pairingToken !== action.token) return state;
+      return {
+        ...state,
+        wifi: { ...state.wifi, pairingFingerprint: undefined, pairingToken: undefined, message: action.message },
+      };
+    case "peer-pair-timeout":
+      if (state.wifi.pairingFingerprint !== action.fingerprint || state.wifi.pairingToken !== action.token) return state;
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          pairingFingerprint: undefined,
+          pairingToken: undefined,
+          message: "No pairing result arrived from tetherd. Check the other device, then try again.",
+        },
+      };
+    case "peer-command-failed":
+      return { ...state, wifi: { ...state.wifi, message: action.message } };
   }
 }
 
 export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): DevicesState {
   switch (event.command) {
+    case "state_snapshot":
+      return { ...state, wifi: wifiFromSnapshot(event) };
+    case "mdns_status":
+      return { ...state, wifi: { ...state.wifi, mdnsAvailable: event.available } };
+    case "discovery_result":
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          peers: mergeDiscoveredPeers(state.wifi.peers, event.devices),
+          discovering: false,
+          discoveryToken: undefined,
+          message: event.devices.length === 0 ? "No nearby Wi-Fi devices found." : `Found ${event.devices.length} nearby device${event.devices.length === 1 ? "" : "s"}.`,
+        },
+      };
+    case "client_connected":
+      return { ...state, wifi: { ...state.wifi, peers: updatePeerConnection(state.wifi.peers, event, true) } };
+    case "client_disconnected":
+      return { ...state, wifi: { ...state.wifi, peers: updatePeerConnection(state.wifi.peers, event, false) } };
+    case "pair_request_received":
+      return { ...state, wifi: { ...state.wifi, peers: upsertPendingPeer(state.wifi.peers, event) } };
+    case "untrusted_client_connected":
+      return { ...state, wifi: { ...state.wifi, peers: upsertPendingPeer(state.wifi.peers, event, true) } };
+    case "pair_outbound_pending":
+      if (!state.wifi.pairingFingerprint || event.fingerprint !== state.wifi.pairingFingerprint) return state;
+      return { ...state, wifi: { ...state.wifi, message: `Waiting for approval on ${event.device_name || "the other device"}…` } };
+    case "pair_rejected":
+      if (!belongsToActivePeerPair(state.wifi, event)) return state;
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          pairingFingerprint: undefined,
+          pairingToken: undefined,
+          message: peerRejectionMessage(event.reason),
+        },
+      };
+    case "pair_accepted":
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          peers: acceptPeer(state.wifi.peers, event.fingerprint, event.connected),
+          pairingFingerprint: state.wifi.pairingFingerprint === event.fingerprint
+            ? undefined
+            : state.wifi.pairingFingerprint,
+          pairingToken: state.wifi.pairingFingerprint === event.fingerprint
+            ? undefined
+            : state.wifi.pairingToken,
+          message: "Device paired.",
+        },
+      };
+    case "forget_device_result":
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          peers: event.forgotten ? forgetPeer(state.wifi.peers, event.fingerprint) : state.wifi.peers,
+          message: event.forgotten ? "Device forgotten." : "Could not forget the device.",
+        },
+      };
     case "bt_status":
       return { ...state, bluetooth: event as BluetoothStatusEvent };
     case "bt_devices": {
@@ -237,6 +398,148 @@ function mergeDevices(...groups: BluetoothDevice[][]): BluetoothDevice[] {
 
 function belongsToActivePairing(pairing: PairingState, operationId?: string): boolean {
   return !operationId || operationId === pairing.operationId;
+}
+
+function wifiFromSnapshot(event: StateSnapshotEvent): WifiState {
+  const peers = new Map<string, WifiPeer>();
+  for (const peer of event.paired_devices || []) {
+    peers.set(peer.fingerprint, {
+      fingerprint: peer.fingerprint,
+      name: peer.device_name || "Unknown Device",
+      port: 5134,
+      paired: true,
+      connected: false,
+      pending: false,
+    });
+  }
+  for (const peer of event.discovered_devices || []) mergeDiscoveredPeer(peers, peer);
+  for (const client of event.connected_clients || []) {
+    const existing = peers.get(client.fingerprint);
+    peers.set(client.fingerprint, {
+      fingerprint: client.fingerprint,
+      name: client.device_name || existing?.name || "Unknown Device",
+      address: client.address || existing?.address,
+      port: existing?.port || 5134,
+      paired: client.paired,
+      connected: true,
+      pending: !client.paired,
+    });
+  }
+  for (const pending of event.pending_pairs || []) {
+    const existing = peers.get(pending.fingerprint);
+    peers.set(pending.fingerprint, {
+      fingerprint: pending.fingerprint,
+      name: pending.device_name || existing?.name || "Unknown Device",
+      address: existing?.address,
+      port: existing?.port || 5134,
+      paired: existing?.paired || false,
+      connected: existing?.connected || false,
+      pending: true,
+    });
+  }
+  return {
+    peers: sortPeers([...peers.values()]),
+    mdnsAvailable: event.mdns_available ?? true,
+    clipboardAvailable: event.clipboard_available ?? true,
+    firewallActive: event.firewall_active ?? false,
+    discovering: false,
+  };
+}
+
+function mergeDiscoveredPeer(peers: Map<string, WifiPeer>, discovered: DiscoveredPeer) {
+  const existing = peers.get(discovered.fingerprint);
+  const firstAddress = discovered.addresses?.[0];
+  peers.set(discovered.fingerprint, {
+    fingerprint: discovered.fingerprint,
+    name: discovered.name || existing?.name || "Unknown Device",
+    address: firstAddress?.address || existing?.address,
+    port: firstAddress?.port || existing?.port || 5134,
+    paired: existing?.paired || false,
+    connected: existing?.connected || false,
+    pending: existing?.pending || false,
+  });
+}
+
+function mergeDiscoveredPeers(current: WifiPeer[], discovered: DiscoveredPeer[]): WifiPeer[] {
+  const durable = current.filter((peer) => peer.paired || peer.connected || peer.pending);
+  const peers = new Map(durable.map((peer) => [peer.fingerprint, peer]));
+  for (const peer of discovered) mergeDiscoveredPeer(peers, peer);
+  return sortPeers([...peers.values()]);
+}
+
+function updatePeerConnection(
+  peers: WifiPeer[],
+  event: { fingerprint?: string; device_name?: string; address?: string; paired?: boolean },
+  connected: boolean,
+): WifiPeer[] {
+  if (!event.fingerprint) return peers;
+  const existing = peers.find((peer) => peer.fingerprint === event.fingerprint);
+  const updated: WifiPeer = {
+    fingerprint: event.fingerprint,
+    name: event.device_name || existing?.name || "Unknown Device",
+    address: event.address || existing?.address,
+    port: existing?.port || 5134,
+    paired: event.paired ?? existing?.paired ?? false,
+    connected,
+    pending: connected && !(event.paired ?? existing?.paired ?? false),
+  };
+  return sortPeers([...peers.filter((peer) => peer.fingerprint !== event.fingerprint), updated]);
+}
+
+function upsertPendingPeer(
+  peers: WifiPeer[],
+  event: { fingerprint?: string; device_name?: string; address?: string },
+  connected = false,
+): WifiPeer[] {
+  if (!event.fingerprint) return peers;
+  const existing = peers.find((peer) => peer.fingerprint === event.fingerprint);
+  const updated: WifiPeer = {
+    fingerprint: event.fingerprint,
+    name: event.device_name || existing?.name || "Unknown Device",
+    address: event.address || existing?.address,
+    port: existing?.port || 5134,
+    paired: false,
+    connected: connected || existing?.connected || false,
+    pending: true,
+  };
+  return sortPeers([...peers.filter((peer) => peer.fingerprint !== event.fingerprint), updated]);
+}
+
+function acceptPeer(peers: WifiPeer[], fingerprint?: string, connected = false): WifiPeer[] {
+  return sortPeers(peers.map((peer) => peer.fingerprint === fingerprint
+    ? { ...peer, paired: true, pending: false, connected: connected || peer.connected }
+    : peer));
+}
+
+function forgetPeer(peers: WifiPeer[], fingerprint?: string): WifiPeer[] {
+  return peers.filter((peer) => peer.fingerprint !== fingerprint);
+}
+
+function sortPeers(peers: WifiPeer[]): WifiPeer[] {
+  return [...peers].sort((left, right) =>
+    Number(right.connected) - Number(left.connected) ||
+    Number(right.paired) - Number(left.paired) ||
+    left.name.localeCompare(right.name));
+}
+
+function belongsToActivePeerPair(
+  wifi: WifiState,
+  event: { fingerprint: string; address?: string },
+): boolean {
+  if (!wifi.pairingFingerprint) return false;
+  if (event.fingerprint) return event.fingerprint === wifi.pairingFingerprint;
+  const activePeer = wifi.peers.find((peer) => peer.fingerprint === wifi.pairingFingerprint);
+  return Boolean(event.address && activePeer?.address === event.address);
+}
+
+function peerRejectionMessage(reason?: string): string {
+  switch (reason) {
+    case "unreachable": return "Could not reach that device. Check that TCP 5134 is allowed through its firewall.";
+    case "refused": return "That device refused the connection. Is Tether running on it?";
+    case "unresolved": return "That device address could not be resolved.";
+    case "failed": return "Could not connect to that device.";
+    default: return "Pair request was rejected.";
+  }
 }
 
 function isAirPodsEvent(event: DaemonEvent): event is AirPodsEvent {

@@ -53,6 +53,27 @@ test("forgets a bonded iPhone after confirmation", async ({ page, request }) => 
   await expect(page.getByText("Forgot someone’s iPhone.")).toBeVisible();
 });
 
+test("discovers a Wi-Fi peer after connecting to tetherd", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { discoverPeer: true } });
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Nearby phone" })).toBeVisible();
+  await expect(page.getByText("peer-1")).toBeVisible();
+});
+
+test("approves and forgets a Wi-Fi peer", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withPeer: true } });
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Nearby phone" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve and trust" }).click();
+  await expect(page.getByRole("button", { name: "Forget device" })).toBeVisible();
+  await page.getByRole("button", { name: "Forget device" }).click();
+  const dialog = page.getByRole("dialog", { name: "Forget Nearby phone?" });
+  await dialog.getByRole("button", { name: "Forget device" }).click();
+  await expect(page.getByRole("status").getByText("Device forgotten.")).toBeVisible();
+});
+
 test("manages connected AirPods", async ({ page, request }) => {
   await request.post("/__test/reset", { data: { withAirPods: true } });
   await page.goto("/");
@@ -74,7 +95,7 @@ test("manages connected AirPods", async ({ page, request }) => {
 
 test("surfaces a gateway command failure", async ({ page, request }) => {
   await page.goto("/");
-  await request.post("/__test/fail-next-command");
+  await request.post("/__test/fail-next-command", { data: { command: "bt_scan" } });
 
   await page.getByRole("button", { name: "Scan for iPhone", exact: true }).last().click();
 

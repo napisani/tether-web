@@ -5,22 +5,28 @@ export function AppShell({
   children,
   daemonConnected,
   bluetoothAvailable,
+  wifiConnected,
+  wifiAvailable,
   phoneConnected,
   version,
 }: {
   children: ReactNode;
   daemonConnected: boolean;
   bluetoothAvailable: boolean;
+  wifiConnected: boolean;
+  wifiAvailable: boolean;
   phoneConnected: boolean;
   version?: string;
 }) {
   return (
     <div className="app-shell">
-      <AppHeader connected={phoneConnected} />
+      <AppHeader connected={phoneConnected || wifiConnected} />
       {children}
       <RouteStatusBar
         daemonConnected={daemonConnected}
         bluetoothAvailable={bluetoothAvailable}
+        wifiConnected={wifiConnected}
+        wifiAvailable={wifiAvailable}
         phoneConnected={phoneConnected}
         version={version}
       />
@@ -44,7 +50,7 @@ function AppHeader({ connected }: { connected: boolean }) {
       </nav>
       <span
         className={`presence-dot ${connected ? "online" : ""}`}
-        aria-label={connected ? "iPhone connected" : "iPhone disconnected"}
+        aria-label={connected ? "device connected" : "device disconnected"}
       />
     </header>
   );
@@ -53,17 +59,27 @@ function AppHeader({ connected }: { connected: boolean }) {
 function RouteStatusBar({
   daemonConnected,
   bluetoothAvailable,
+  wifiConnected,
+  wifiAvailable,
   phoneConnected,
   version,
 }: {
   daemonConnected: boolean;
   bluetoothAvailable: boolean;
+  wifiConnected: boolean;
+  wifiAvailable: boolean;
   phoneConnected: boolean;
   version?: string;
 }) {
   return (
     <footer className="route-status-bar">
       <RouteStatus icon="◉" label="tetherd" status={daemonConnected ? "connected" : "offline"} active={daemonConnected} />
+      <RouteStatus
+        icon="⌁"
+        label="Wi-Fi"
+        status={wifiConnected ? "device connected" : wifiAvailable ? "ready" : "mDNS unavailable"}
+        active={wifiConnected}
+      />
       <RouteStatus
         icon="ᛒ"
         label="Bluetooth"

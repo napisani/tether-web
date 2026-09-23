@@ -7,6 +7,162 @@ function apply(events: DaemonEvent[]) {
 }
 
 describe("reduceDevicesEvent", () => {
+  it("builds and updates the Wi-Fi peer list from daemon state", () => {
+    const state = reduceDevicesEvent(initialDevicesState, {
+      command: "state_snapshot",
+      paired_devices: [{ fingerprint: "paired", device_name: "Paired phone" }],
+      pending_pairs: [{ fingerprint: "pending", device_name: "New phone" }],
+      connected_clients: [{ fingerprint: "paired", device_name: "Paired phone", address: "10.0.0.2", paired: true }],
+      discovered_devices: [{ name: "Nearby phone", fingerprint: "nearby", addresses: [{ address: "10.0.0.3", port: 5134 }] }],
+      mdns_available: true,
+      clipboard_available: false,
+      firewall_active: true,
+    });
+
+    expect(state.wifi.peers.map((peer) => peer.fingerprint)).toEqual(["paired", "nearby", "pending"]);
+    expect(state.wifi.peers[0]).toMatchObject({ connected: true, paired: true, address: "10.0.0.2" });
+    expect(state.wifi).toMatchObject({ clipboardAvailable: false, firewallActive: true });
+
+    const accepted = reduceDevicesEvent(state, {
+      command: "pair_accepted",
+      fingerprint: "pending",
+      connected: true,
+    });
+    expect(accepted.wifi.peers.find((peer) => peer.fingerprint === "pending")).toMatchObject({
+      paired: true,
+      connected: true,
+      pending: false,
+    });
+  });
+
+  it("replaces stale unpaired discovery results but retains durable peers", () => {
+    const state = reduceDevicesEvent(initialDevicesState, {
+      command: "state_snapshot",
+      paired_devices: [{ fingerprint: "paired", device_name: "Paired phone" }],
+      pending_pairs: [],
+      connected_clients: [],
+      discovered_devices: [{ name: "Old phone", fingerprint: "old", addresses: [] }],
+      mdns_available: true,
+      clipboard_available: true,
+      firewall_active: false,
+    });
+
+    const refreshed = reduceDevicesEvent(state, {
+      command: "discovery_result",
+      devices: [{ name: "New phone", fingerprint: "new", addresses: [] }],
+    });
+
+    expect(refreshed.wifi.peers.map((peer) => peer.fingerprint)).toEqual(["paired", "new"]);
+  });
+
+  it("treats an explicitly unpaired connected client as pending approval", () => {
+    const state = reduceDevicesEvent(initialDevicesState, {
+      command: "state_snapshot",
+      paired_devices: [{ fingerprint: "peer", device_name: "Previously paired" }],
+      pending_pairs: [],
+      connected_clients: [{ fingerprint: "peer", device_name: "Untrusted phone", address: "10.0.0.4", paired: false }],
+      discovered_devices: [],
+      mdns_available: true,
+      clipboard_available: true,
+      firewall_active: false,
+    });
+
+    expect(state.wifi.peers[0]).toMatchObject({ paired: false, connected: true, pending: true });
+  });
+
+  it("makes an untrusted client connected and pending even if it was previously trusted", () => {
+    const trusted = reduceDevicesEvent(initialDevicesState, {
+      command: "state_snapshot",
+      paired_devices: [{ fingerprint: "peer", device_name: "Previously paired" }],
+      pending_pairs: [],
+      connected_clients: [],
+      discovered_devices: [],
+      mdns_available: true,
+      clipboard_available: true,
+      firewall_active: false,
+    });
+    const state = reduceDevicesEvent(trusted, {
+      command: "untrusted_client_connected",
+      fingerprint: "peer",
+      device_name: "Nearby phone",
+      address: "10.0.0.4",
+    });
+
+    expect(state.wifi.peers[0]).toMatchObject({ paired: false, connected: true, pending: true });
+  });
+
+  it("keeps discovery timeouts scoped to their operation", () => {
+    const first = reduceDevicesState(initialDevicesState, { type: "peer-discovery-started", token: "old" });
+    const second = reduceDevicesState(first, { type: "peer-discovery-started", token: "current" });
+    const staleTimeout = reduceDevicesState(second, { type: "peer-discovery-timeout", token: "old" });
+
+    expect(staleTimeout.wifi).toMatchObject({ discovering: true, discoveryToken: "current" });
+    const timedOut = reduceDevicesState(staleTimeout, { type: "peer-discovery-timeout", token: "current" });
+    expect(timedOut.wifi.discovering).toBe(false);
+    expect(timedOut.wifi.message).toContain("No discovery result");
+  });
+
+  it("tracks the peer awaiting outbound approval", () => {
+    const started = reduceDevicesState(initialDevicesState, {
+      type: "peer-pair-started",
+      fingerprint: "peer",
+      token: "pair-1",
+    });
+    expect(started.wifi).toMatchObject({ pairingFingerprint: "peer", pairingToken: "pair-1" });
+
+    const rejected = reduceDevicesEvent(started, {
+      command: "pair_rejected",
+      fingerprint: "peer",
+      device_name: "Nearby phone",
+      reason: "refused",
+    });
+    expect(rejected.wifi.pairingFingerprint).toBeUndefined();
+    expect(rejected.wifi.pairingToken).toBeUndefined();
+    expect(rejected.wifi.message).toContain("refused");
+  });
+
+  it("ignores a timeout from an older outbound peer operation", () => {
+    const first = reduceDevicesState(initialDevicesState, {
+      type: "peer-pair-started",
+      fingerprint: "peer",
+      token: "old",
+    });
+    const current = reduceDevicesState(first, {
+      type: "peer-pair-started",
+      fingerprint: "peer",
+      token: "current",
+    });
+    const stale = reduceDevicesState(current, {
+      type: "peer-pair-timeout",
+      fingerprint: "peer",
+      token: "old",
+    });
+
+    expect(stale.wifi).toMatchObject({ pairingFingerprint: "peer", pairingToken: "current" });
+  });
+
+  it("retains peer state when forgetting fails", () => {
+    const state = reduceDevicesEvent(initialDevicesState, {
+      command: "state_snapshot",
+      paired_devices: [{ fingerprint: "paired", device_name: "Paired phone" }],
+      pending_pairs: [],
+      connected_clients: [],
+      discovered_devices: [],
+      mdns_available: true,
+      clipboard_available: true,
+      firewall_active: false,
+    });
+
+    const failed = reduceDevicesEvent(state, {
+      command: "forget_device_result",
+      fingerprint: "paired",
+      forgotten: false,
+    });
+
+    expect(failed.wifi.peers).toEqual(state.wifi.peers);
+    expect(failed.wifi.message).toBe("Could not forget the device.");
+  });
+
   it("retains discovered phones after BlueZ removes the transient object", () => {
     const state = apply([
       {

@@ -13,11 +13,12 @@ The first release provides the runtime scaffolding for a web client and the Devi
 - discover a possible iPhone from its Apple Nearby advertisement;
 - compare and explicitly confirm the Bluetooth pairing code;
 - display Classic, Low Energy, MAP, PBAP, and ANCS status;
-- forget an existing Bluetooth pairing; and
-- recover pairing state after browser or daemon reconnects; and
-- manage AirPods connection, battery and in-ear state, listening mode, pause-on-removal, and call handoff.
+- forget an existing Bluetooth pairing;
+- recover pairing state after browser or daemon reconnects;
+- manage AirPods connection, battery and in-ear state, listening mode, pause-on-removal, and call handoff; and
+- discover, approve, connect, and forget Tether peers over Wi-Fi.
 
-This is not yet a complete replacement for Tether's GTK client. Messages, notifications, calls, contacts, settings, Wi-Fi peers, file transfer, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
+This is not yet a complete replacement for Tether's GTK client. Messages, notifications, calls, contacts, settings, file transfer, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
 
 ## Requirements
 

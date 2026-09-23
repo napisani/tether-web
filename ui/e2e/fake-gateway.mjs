@@ -8,7 +8,8 @@ const clients = new Set();
 const timers = new Set();
 const history = [];
 let nextEventId = 0;
-let failNextCommand = false;
+let failNextCommand;
+let discoverablePeers = [];
 
 const phone = {
   address: "40:F6:64:3D:7A:F1",
@@ -37,11 +38,17 @@ const airpods = {
   connected: true,
 };
 
+const peer = {
+  name: "Nearby phone",
+  fingerprint: "peer-1",
+  addresses: [{ address: "10.0.0.3", port: 5134 }],
+};
+
 const durable = {
   protocol_info: {
     command: "protocol_info",
     version: 1,
-    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing"],
+    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "peers"],
   },
   bt_status: {
     command: "bt_status",
@@ -52,7 +59,22 @@ const durable = {
   },
   bt_devices: { command: "bt_devices", devices: [] },
   bt_connection_changed: disconnectedConnection(),
+  state_snapshot: emptyStateSnapshot(),
 };
+
+function emptyStateSnapshot() {
+  return {
+    command: "state_snapshot",
+    paired_devices: [],
+    pending_pairs: [],
+    connected_clients: [],
+    discovered_devices: [],
+    recent_received_files: [],
+    mdns_available: true,
+    clipboard_available: true,
+    firewall_active: false,
+  };
+}
 
 function disconnectedConnection() {
   return {
@@ -103,13 +125,25 @@ function setPhonePaired(paired) {
   durable.bt_connection_changed = paired ? connectedConnection() : disconnectedConnection();
 }
 
-function reset({ paired = false, withAirPods = false } = {}) {
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
   nextEventId = 0;
-  failNextCommand = false;
+  failNextCommand = undefined;
+  discoverablePeers = discoverPeer || withPeer ? [peer] : [];
   setPhonePaired(paired);
+  durable.state_snapshot = emptyStateSnapshot();
+  if (withPeer) {
+    durable.state_snapshot.pending_pairs = [{ fingerprint: peer.fingerprint, device_name: peer.name }];
+    durable.state_snapshot.connected_clients = [{
+      fingerprint: peer.fingerprint,
+      device_name: peer.name,
+      address: peer.addresses[0].address,
+      paired: false,
+    }];
+    durable.state_snapshot.discovered_devices = [peer];
+  }
   if (withAirPods) {
     airpods.connected = true;
     durable.bt_status = {
@@ -171,6 +205,34 @@ function writeSnapshot(response) {
 }
 
 function handleCommand(command) {
+  if (command.command === "discover") {
+    later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10);
+  }
+  if (command.command === "accept_device") {
+    durable.state_snapshot.pending_pairs = [];
+    durable.state_snapshot.paired_devices = [{ fingerprint: peer.fingerprint, device_name: peer.name }];
+    durable.state_snapshot.connected_clients[0].paired = true;
+    publish({ command: "pair_accepted", fingerprint: peer.fingerprint, device_name: peer.name, connected: true });
+  }
+  if (command.command === "pair_request") {
+    publish({
+      command: "pair_outbound_pending",
+      fingerprint: peer.fingerprint,
+      device_name: command.device_name,
+      address: command.host,
+    });
+    later(() => publish({
+      command: "pair_accepted",
+      fingerprint: peer.fingerprint,
+      device_name: peer.name,
+      connected: true,
+    }), 10);
+  }
+  if (command.command === "forget_device") {
+    durable.state_snapshot.paired_devices = [];
+    durable.state_snapshot.connected_clients = [];
+    publish({ command: "forget_device_result", fingerprint: command.fingerprint, forgotten: true });
+  }
   if (command.command === "bt_scan") {
     later(() => publish({ command: "bt_devices", devices: [phone] }), 20);
     later(() => {
@@ -273,7 +335,8 @@ const server = createServer(async (request, response) => {
     return;
   }
   if (request.url === "/__test/fail-next-command" && request.method === "POST") {
-    failNextCommand = true;
+    const body = await readJSON(request);
+    failNextCommand = body.command || "*";
     response.writeHead(204).end();
     return;
   }
@@ -301,8 +364,8 @@ const server = createServer(async (request, response) => {
   }
   if (request.url === "/api/v1/commands" && request.method === "POST") {
     const command = await readJSON(request);
-    if (failNextCommand) {
-      failNextCommand = false;
+    if (failNextCommand === "*" || failNextCommand === command.command) {
+      failNextCommand = undefined;
       response.writeHead(503).end();
       return;
     }

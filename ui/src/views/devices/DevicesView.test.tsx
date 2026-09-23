@@ -4,6 +4,7 @@ import type { DaemonState } from "../../app/appState";
 import { DevicesView } from "./DevicesView";
 import type { DevicesState } from "./devicesState";
 import type { AirPodsActions } from "./useAirPodsCommands";
+import type { PeerActions } from "./usePeerCommands";
 
 const pairedDaemon: DaemonState = {
   connected: true,
@@ -52,6 +53,13 @@ const pairedState: DevicesState = {
     },
   ],
   scanning: false,
+  wifi: {
+    peers: [],
+    mdnsAvailable: true,
+    clipboardAvailable: true,
+    firewallActive: false,
+    discovering: false,
+  },
   pairing: {
     phase: "confirming",
     operationId: "pair-1",
@@ -73,6 +81,12 @@ function renderDevicesView({
     setPause: vi.fn(),
     setHandoff: vi.fn(),
   },
+  peerActions = {
+    discover: vi.fn(),
+    pair: vi.fn(),
+    accept: vi.fn(),
+    forget: vi.fn(),
+  },
 }: {
   daemon?: DaemonState;
   state?: DevicesState;
@@ -80,6 +94,7 @@ function renderDevicesView({
   onUnpair?: (address: string) => void;
   onConfirmPairing?: (accept: boolean) => void;
   airpodsActions?: AirPodsActions;
+  peerActions?: PeerActions;
 } = {}) {
   render(
     <DevicesView
@@ -91,6 +106,7 @@ function renderDevicesView({
       onConfirmPairing={onConfirmPairing}
       onResetPairing={vi.fn()}
       airpodsActions={airpodsActions}
+      peerActions={peerActions}
     />,
   );
 }
@@ -203,6 +219,33 @@ describe("guided pairing view", () => {
     const dialog = screen.getByRole("dialog", { name: "Forget Someone’s iPhone?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Forget iPhone" }));
     expect(unpair).toHaveBeenCalledWith("38:9C:B2:42:3F:E7");
+  });
+
+  it("pairs and trusts a nearby Wi-Fi peer", () => {
+    const actions: PeerActions = {
+      discover: vi.fn(),
+      pair: vi.fn(),
+      accept: vi.fn(),
+      forget: vi.fn(),
+    };
+    const peer = {
+      fingerprint: "peer-1",
+      name: "Nearby phone",
+      address: "10.0.0.3",
+      port: 5134,
+      paired: false,
+      connected: false,
+      pending: true,
+    };
+    renderDevicesView({
+      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
+      peerActions: actions,
+    });
+
+    expect(screen.getByRole("heading", { name: "Nearby phone" })).toBeInTheDocument();
+    expect(screen.getByText("peer-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Approve and trust" }));
+    expect(actions.accept).toHaveBeenCalledWith(peer);
   });
 
   it("shows live AirPods controls with GTK-aligned gating", () => {

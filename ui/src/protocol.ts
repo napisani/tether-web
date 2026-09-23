@@ -137,6 +137,95 @@ export interface AirPodsResultEvent extends DaemonEventBase {
   message?: string;
 }
 
+export interface PeerAddress extends JsonRecord {
+  address: string;
+  port: number;
+}
+
+export interface DiscoveredPeer extends JsonRecord {
+  name: string;
+  fingerprint: string;
+  addresses: PeerAddress[];
+}
+
+export interface StateSnapshotEvent extends DaemonEventBase {
+  command: "state_snapshot";
+  paired_devices: Array<{ fingerprint: string; device_name: string }>;
+  pending_pairs: Array<{ fingerprint: string; device_name: string }>;
+  connected_clients: Array<{
+    fingerprint: string;
+    device_name: string;
+    address: string;
+    paired: boolean;
+  }>;
+  discovered_devices: DiscoveredPeer[];
+  mdns_available: boolean;
+  clipboard_available: boolean;
+  firewall_active: boolean;
+}
+
+export interface DiscoveryResultEvent extends DaemonEventBase {
+  command: "discovery_result";
+  devices: DiscoveredPeer[];
+}
+
+export interface MdnsStatusEvent extends DaemonEventBase {
+  command: "mdns_status";
+  available: boolean;
+}
+
+export interface PeerConnectionEvent extends DaemonEventBase {
+  command: "client_connected" | "client_disconnected";
+  fingerprint: string;
+  device_name: string;
+  address: string;
+  paired: boolean;
+}
+
+export interface PeerRequestEvent extends DaemonEventBase {
+  command: "pair_request_received" | "untrusted_client_connected";
+  fingerprint: string;
+  device_name: string;
+  address: string;
+}
+
+export interface PeerOutboundPendingEvent extends DaemonEventBase {
+  command: "pair_outbound_pending";
+  fingerprint: string;
+  device_name: string;
+  address: string;
+}
+
+export interface PeerRejectedEvent extends DaemonEventBase {
+  command: "pair_rejected";
+  fingerprint: string;
+  device_name: string;
+  address?: string;
+  reason?: "unreachable" | "refused" | "unresolved" | "failed" | string;
+}
+
+export interface PeerAcceptedEvent extends DaemonEventBase {
+  command: "pair_accepted";
+  fingerprint: string;
+  device_name?: string;
+  address?: string;
+  connected: boolean;
+}
+
+export interface ForgetPeerResultEvent extends DaemonEventBase {
+  command: "forget_device_result";
+  fingerprint: string;
+  forgotten: boolean;
+}
+
+export type PeerLifecycleEvent =
+  | PeerConnectionEvent
+  | PeerRequestEvent
+  | PeerOutboundPendingEvent
+  | PeerRejectedEvent
+  | PeerAcceptedEvent
+  | ForgetPeerResultEvent;
+
 export interface GatewayStatusEvent extends DaemonEventBase {
   command: "gateway_status";
   daemon_connected: boolean;
@@ -153,6 +242,10 @@ export type DaemonEvent =
   | BluetoothPairingConfirmationEvent
   | AirPodsEvent
   | AirPodsResultEvent
+  | StateSnapshotEvent
+  | DiscoveryResultEvent
+  | MdnsStatusEvent
+  | PeerLifecycleEvent
   | GatewayStatusEvent;
 
 export interface BluetoothScanCommand extends JsonRecord {
@@ -179,6 +272,28 @@ export interface BluetoothPairConfirmationCommand extends JsonRecord {
 
 // Enable, pause, and handoff settings complete when tetherd republishes bt_status;
 // unlike connect and listening-mode changes, they do not have result events.
+export interface DiscoverCommand extends JsonRecord {
+  command: "discover";
+}
+
+export interface PairPeerCommand extends JsonRecord {
+  command: "pair_request";
+  host: string;
+  port: number;
+  device_name: string;
+}
+
+export interface AcceptPeerCommand extends JsonRecord {
+  command: "accept_device";
+  fingerprint: string;
+  device_name: string;
+}
+
+export interface ForgetPeerCommand extends JsonRecord {
+  command: "forget_device";
+  fingerprint: string;
+}
+
 export interface AirPodsEnableCommand extends JsonRecord {
   command: "bt_airpods_enable";
   enabled: boolean;
@@ -214,7 +329,11 @@ export type DaemonCommand =
   | AirPodsPauseCommand
   | AirPodsHandoffCommand
   | AirPodsModeCommand
-  | AirPodsConnectCommand;
+  | AirPodsConnectCommand
+  | DiscoverCommand
+  | PairPeerCommand
+  | AcceptPeerCommand
+  | ForgetPeerCommand;
 
 export interface GatewayState {
   daemon_connected: boolean;
