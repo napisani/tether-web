@@ -226,6 +226,22 @@ export type PeerLifecycleEvent =
   | PeerAcceptedEvent
   | ForgetPeerResultEvent;
 
+export interface FileUploadStartedEvent extends DaemonEventBase {
+  command: "file_upload_started";
+  operation_id: string;
+  filename?: string;
+  success: boolean;
+  message?: string;
+}
+
+export interface FileSendCompleteEvent extends DaemonEventBase {
+  command: "file_send_complete";
+  operation_id: string;
+  filename?: string;
+  success: boolean;
+  message?: string;
+}
+
 export interface GatewayStatusEvent extends DaemonEventBase {
   command: "gateway_status";
   daemon_connected: boolean;
@@ -246,6 +262,8 @@ export type DaemonEvent =
   | DiscoveryResultEvent
   | MdnsStatusEvent
   | PeerLifecycleEvent
+  | FileUploadStartedEvent
+  | FileSendCompleteEvent
   | GatewayStatusEvent;
 
 export interface BluetoothScanCommand extends JsonRecord {
@@ -294,6 +312,30 @@ export interface ForgetPeerCommand extends JsonRecord {
   fingerprint: string;
 }
 
+export interface FileUploadStartCommand extends JsonRecord {
+  command: "file_upload_start";
+  operation_id: string;
+  filename: string;
+  size: number;
+}
+
+export interface FileUploadChunkCommand extends JsonRecord {
+  command: "file_upload_chunk";
+  operation_id: string;
+  chunk_index: number;
+  data: string;
+}
+
+export interface FileUploadFinishCommand extends JsonRecord {
+  command: "file_upload_finish";
+  operation_id: string;
+}
+
+export interface FileUploadCancelCommand extends JsonRecord {
+  command: "file_upload_cancel";
+  operation_id: string;
+}
+
 export interface AirPodsEnableCommand extends JsonRecord {
   command: "bt_airpods_enable";
   enabled: boolean;
@@ -333,7 +375,11 @@ export type DaemonCommand =
   | DiscoverCommand
   | PairPeerCommand
   | AcceptPeerCommand
-  | ForgetPeerCommand;
+  | ForgetPeerCommand
+  | FileUploadStartCommand
+  | FileUploadChunkCommand
+  | FileUploadFinishCommand
+  | FileUploadCancelCommand;
 
 export interface GatewayState {
   daemon_connected: boolean;

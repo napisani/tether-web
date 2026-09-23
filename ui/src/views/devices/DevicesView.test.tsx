@@ -4,6 +4,7 @@ import type { DaemonState } from "../../app/appState";
 import { DevicesView } from "./DevicesView";
 import type { DevicesState } from "./devicesState";
 import type { AirPodsActions } from "./useAirPodsCommands";
+import type { FileTransferActions } from "./useFileTransfer";
 import type { PeerActions } from "./usePeerCommands";
 
 const pairedDaemon: DaemonState = {
@@ -87,6 +88,13 @@ function renderDevicesView({
     accept: vi.fn(),
     forget: vi.fn(),
   },
+  fileTransfer = {
+    state: { sentBytes: 0, totalBytes: 0, status: "idle" },
+    sendFile: vi.fn(),
+    cancel: vi.fn(),
+    handleEvent: vi.fn(),
+    handleDisconnect: vi.fn(),
+  },
 }: {
   daemon?: DaemonState;
   state?: DevicesState;
@@ -95,6 +103,7 @@ function renderDevicesView({
   onConfirmPairing?: (accept: boolean) => void;
   airpodsActions?: AirPodsActions;
   peerActions?: PeerActions;
+  fileTransfer?: FileTransferActions;
 } = {}) {
   render(
     <DevicesView
@@ -107,6 +116,7 @@ function renderDevicesView({
       onResetPairing={vi.fn()}
       airpodsActions={airpodsActions}
       peerActions={peerActions}
+      fileTransfer={fileTransfer}
     />,
   );
 }
@@ -246,6 +256,70 @@ describe("guided pairing view", () => {
     expect(screen.getByText("peer-1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Approve and trust" }));
     expect(actions.accept).toHaveBeenCalledWith(peer);
+  });
+
+  it("offers file selection and drop for a connected trusted peer", () => {
+    const sendFile = vi.fn();
+    const fileTransfer: FileTransferActions = {
+      state: { sentBytes: 0, totalBytes: 0, status: "idle" },
+      sendFile,
+      cancel: vi.fn(),
+      handleEvent: vi.fn(),
+      handleDisconnect: vi.fn(),
+    };
+    const peer = {
+      fingerprint: "peer-1",
+      name: "Nearby phone",
+      address: "10.0.0.3",
+      port: 5134,
+      paired: true,
+      connected: true,
+      pending: false,
+    };
+    renderDevicesView({
+      daemon: {
+        ...pairedDaemon,
+        protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files.upload"] },
+      },
+      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
+      fileTransfer,
+    });
+
+    expect(screen.getByRole("heading", { name: "Send a file" })).toBeInTheDocument();
+    const file = new File(["hello"], "hello.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("Choose a file to send"), { target: { files: [file] } });
+    expect(sendFile).toHaveBeenCalledWith(file);
+  });
+
+  it("labels file progress and offers cancellation only while staging", () => {
+    const cancel = vi.fn();
+    const peer = {
+      fingerprint: "peer-1",
+      name: "Nearby phone",
+      address: "10.0.0.3",
+      port: 5134,
+      paired: true,
+      connected: true,
+      pending: false,
+    };
+    renderDevicesView({
+      daemon: {
+        ...pairedDaemon,
+        protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files.upload"] },
+      },
+      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
+      fileTransfer: {
+        state: { operationId: "upload-1", filename: "notes.txt", sentBytes: 24, totalBytes: 48, status: "uploading" },
+        sendFile: vi.fn(),
+        cancel,
+        handleEvent: vi.fn(),
+        handleDisconnect: vi.fn(),
+      },
+    });
+
+    expect(screen.getByRole("progressbar", { name: "Sending notes.txt" })).toHaveValue(50);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel transfer" }));
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it("shows live AirPods controls with GTK-aligned gating", () => {

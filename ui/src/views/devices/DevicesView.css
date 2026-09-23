@@ -585,6 +585,77 @@
   }
 }
 
+.devices-view .file-drop-zone {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 13px;
+  padding: 28px 20px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-surface-subtle);
+  text-align: center;
+}
+
+.devices-view .file-drop-zone.dragging {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+}
+
+.devices-view .file-drop-zone.disabled {
+  opacity: 0.62;
+}
+
+.devices-view .file-drop-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.devices-view .file-drop-zone p,
+.devices-view .file-transfer-status p {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.devices-view .file-transfer-status {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.devices-view .file-transfer-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.devices-view .file-transfer-summary span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.devices-view .file-transfer-status progress {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+.devices-view .file-transfer-status .text-button {
+  width: fit-content;
+  padding: 0;
+}
+
+.devices-view .file-transfer-status .error-text {
+  color: var(--color-danger);
+}
+
 .devices-view .route-detail {
   color: var(--color-text-muted);
   line-height: 1.55;

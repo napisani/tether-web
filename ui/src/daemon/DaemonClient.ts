@@ -64,6 +64,12 @@ export function parseDaemonEvent(data: string): DaemonEvent | undefined {
       case "forget_device_result":
         if (!isNonEmptyString(value.fingerprint) || typeof value.forgotten !== "boolean") return undefined;
         break;
+      case "file_upload_started":
+      case "file_send_complete":
+        if (!isNonEmptyString(value.operation_id) || typeof value.success !== "boolean" ||
+            (value.message !== undefined && typeof value.message !== "string") ||
+            (value.filename !== undefined && typeof value.filename !== "string")) return undefined;
+        break;
     }
     return value as DaemonEvent;
   } catch {

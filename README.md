@@ -16,13 +16,14 @@ The first release provides the runtime scaffolding for a web client and the Devi
 - forget an existing Bluetooth pairing;
 - recover pairing state after browser or daemon reconnects;
 - manage AirPods connection, battery and in-ear state, listening mode, pause-on-removal, and call handoff; and
-- discover, approve, connect, and forget Tether peers over Wi-Fi.
+- discover, approve, connect, and forget Tether peers over Wi-Fi; and
+- send files to a connected trusted peer from a file picker or drop zone.
 
-This is not yet a complete replacement for Tether's GTK client. Messages, notifications, calls, contacts, settings, file transfer, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
+This is not yet a complete replacement for Tether's GTK client. Messages, notifications, calls, contacts, settings, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
 
 ## Requirements
 
-- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with the `protocol_info`, Bluetooth `operation_id`, and `apple_nearby` protocol additions.
+- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with the `protocol_info`, Bluetooth `operation_id`, `apple_nearby`, and chunked local file-upload protocol additions.
 - Read/write access to the `tetherd` Unix socket.
 - Node.js 24 and Go 1.24 to build from source.
 

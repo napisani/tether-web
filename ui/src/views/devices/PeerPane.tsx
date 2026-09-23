@@ -1,4 +1,6 @@
 import type { WifiPeer, WifiState } from "./devicesState";
+import { FileTransfer } from "./FileTransfer";
+import type { FileTransferActions } from "./useFileTransfer";
 import type { PeerActions } from "./usePeerCommands";
 
 function routeDetail(peer: WifiPeer, wifi: WifiState): string {
@@ -18,11 +20,15 @@ export function PeerPane({
   peer,
   wifi,
   actions,
+  fileTransfer,
+  fileUploadAvailable,
   onForget,
 }: {
   peer: WifiPeer;
   wifi: WifiState;
   actions: PeerActions;
+  fileTransfer: FileTransferActions;
+  fileUploadAvailable: boolean;
   onForget: () => void;
 }) {
   const location = peer.address ? `${peer.address}:${peer.port}` : "Address unavailable";
@@ -45,6 +51,10 @@ export function PeerPane({
         <div className="section-heading"><h3 id="wifi-route-title">Wi-Fi route</h3><span>Live from tetherd</span></div>
         <p className="route-detail">{routeDetail(peer, wifi)}</p>
       </section>
+
+      {peer.paired && peer.connected ? (
+        <FileTransfer available={fileUploadAvailable} actions={fileTransfer} />
+      ) : null}
 
       <div className="actions">
         {peer.paired ? (

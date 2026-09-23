@@ -5,18 +5,26 @@ import { DevicesView } from "../views/devices/DevicesView";
 import { useAirPodsCommands } from "../views/devices/useAirPodsCommands";
 import { useBluetoothCommands } from "../views/devices/useBluetoothCommands";
 import { usePeerCommands } from "../views/devices/usePeerCommands";
+import { useFileTransfer } from "../views/devices/useFileTransfer";
 import { AppShell } from "./AppShell";
 import { initialAppState, reduceAppState } from "./appState";
 
 export function TetherApp() {
   const [state, dispatch] = useReducer(reduceAppState, initialAppState);
+  const fileTransfer = useFileTransfer();
   const onConnectionChange = useCallback(
-    (connected: boolean) => dispatch({ type: "daemon-connected", connected }),
-    [],
+    (connected: boolean) => {
+      if (!connected) fileTransfer.handleDisconnect();
+      dispatch({ type: "daemon-connected", connected });
+    },
+    [fileTransfer.handleDisconnect],
   );
   const onEvent = useCallback(
-    (event: DaemonEvent) => dispatch({ type: "daemon-event", event }),
-    [],
+    (event: DaemonEvent) => {
+      fileTransfer.handleEvent(event);
+      dispatch({ type: "daemon-event", event });
+    },
+    [fileTransfer.handleEvent],
   );
   useDaemonClient({ onConnectionChange, onEvent });
 
@@ -57,6 +65,7 @@ export function TetherApp() {
         onResetPairing={actions.resetPairing}
         airpodsActions={airpodsActions}
         peerActions={peerActions}
+        fileTransfer={fileTransfer}
       />
     </AppShell>
   );

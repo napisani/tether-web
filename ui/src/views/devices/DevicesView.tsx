@@ -8,6 +8,7 @@ import { ConfirmPeerForgetDialog, PeerPane } from "./PeerPane";
 import { deviceDisplayName } from "./device";
 import type { DevicesState } from "./devicesState";
 import type { AirPodsActions } from "./useAirPodsCommands";
+import type { FileTransferActions } from "./useFileTransfer";
 import type { PeerActions } from "./usePeerCommands";
 import { Notice, Welcome } from "./EmptyStates";
 import "./DevicesView.css";
@@ -22,6 +23,7 @@ type DevicesViewProps = {
   onResetPairing: () => void;
   airpodsActions: AirPodsActions;
   peerActions: PeerActions;
+  fileTransfer: FileTransferActions;
 };
 
 export function DevicesView({
@@ -34,6 +36,7 @@ export function DevicesView({
   onResetPairing,
   airpodsActions,
   peerActions,
+  fileTransfer,
 }: DevicesViewProps) {
   const configuredAddress = state.bluetooth?.device_address;
   const initialAddress = configuredAddress || state.devices[0]?.address || "";
@@ -54,6 +57,7 @@ export function DevicesView({
   const connection = state.connection;
   const pairingAvailable = daemon.protocol?.capabilities.includes("bluetooth.pairing") === true;
   const peerDiscoveryAvailable = daemon.protocol?.capabilities.includes("peers") === true;
+  const fileUploadAvailable = daemon.protocol?.capabilities.includes("files.upload") === true;
   const bluetoothAvailable = state.bluetooth?.available ?? false;
   const pairingBusy = state.pairing.phase === "pairing" || state.pairing.phase === "confirming";
   const isConfiguredDevice = Boolean(
@@ -94,6 +98,8 @@ export function DevicesView({
               peer={selectedPeer}
               wifi={state.wifi}
               actions={peerActions}
+              fileTransfer={fileTransfer}
+              fileUploadAvailable={fileUploadAvailable}
               onForget={() => setForgetFingerprint(selectedPeer.fingerprint)}
             />
           ) : !bluetoothAvailable ? (

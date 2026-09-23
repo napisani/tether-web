@@ -74,6 +74,22 @@ test("approves and forgets a Wi-Fi peer", async ({ page, request }) => {
   await expect(page.getByRole("status").getByText("Device forgotten.")).toBeVisible();
 });
 
+test("sends a browser file to a trusted peer", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withPeer: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Approve and trust" }).click();
+  await expect(page.getByRole("heading", { name: "Send a file" })).toBeVisible();
+
+  await page.getByLabel("Choose a file to send").setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("hello from tether-web"),
+  });
+
+  await expect(page.getByText("Sent", { exact: true })).toBeVisible();
+  await expect(page.getByText("File sent.")).toBeVisible();
+});
+
 test("manages connected AirPods", async ({ page, request }) => {
   await request.post("/__test/reset", { data: { withAirPods: true } });
   await page.goto("/");

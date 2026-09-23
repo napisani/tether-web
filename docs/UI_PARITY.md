@@ -55,7 +55,7 @@ its ownership should still make the GTK/Web relationship obvious.
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
 | App shell | Partial | Shared header, GTK tab order, route status footer | View switching, shortcuts, settings entry, shared unread state |
-| Devices | Partial | Wi-Fi discovery, incoming/outgoing trust, online/offline state, forget flow, mDNS/firewall guidance; Bluetooth discovery, pairing and connection capabilities; complete AirPods controls | File sending and drop zone, Bluetooth setup/solicitation controls |
+| Devices | Partial | Wi-Fi discovery, incoming/outgoing trust, online/offline state, forget flow, mDNS/firewall guidance, and file sending by picker or drop; Bluetooth discovery, pairing and connection capabilities; complete AirPods controls | Bluetooth setup/solicitation controls |
 | Messages | Not started | Navigation placeholder | Threads, search, conversation, drafts, compose/send, read state, permission guidance |
 | Notifications | Not started | Navigation placeholder | Notification list, refresh, removal, dismissal, connection guidance |
 | Calls | Not started | Navigation placeholder | Availability, call list, dial, answer, hang up, audio routing, network state |
@@ -70,8 +70,8 @@ user-visible capability.
 
 1. **Keep the common shell stable.** Route all daemon traffic through one client,
    keep app-wide navigation/status in `app/`, and keep feature state in its view.
-2. **Finish Devices parity.** AirPods and Wi-Fi peer management are complete.
-   Add file transfer and the remaining Bluetooth controls. Preserve the current
+2. **Finish Devices parity.** AirPods, Wi-Fi peer management, and file sending
+   are complete. Add the remaining Bluetooth controls. Preserve the current
    pairing workflow while adding the missing operations.
 3. **Add Messages.** Mirror thread visibility refresh, conversation selection,
    drafts, compose/send state, errors, and disconnect cleanup. Add shared contact
@@ -122,6 +122,13 @@ code. They are decisions to review, not implicit omissions.
   serializes its own discovery and outbound-pair operations, scopes failures by
   a local token or peer fingerprint where the protocol permits it, and treats
   each valid discovery result as the daemon's latest authoritative snapshot.
+- GTK passes a daemon-host filesystem path to `send_file`. Browsers cannot
+  provide such a path, so the web client reads a selected file in bounded chunks.
+  `tetherd` stages at most two 256 MiB uploads in its runtime directory, then
+  forwards each completed file through the existing `Client::send_file` path.
+  Upload commands and results carry an operation ID; unfinished uploads are
+  cancellable, while an accepted send runs to one terminal result with a bounded
+  browser wait. The Go gateway remains a transport-only JSON bridge.
 - The current daemon's AirPods connection result has no operation ID or device
   address. The browser scopes pending state to the selected address, prevents a
   duplicate operation for that device in one tab, and times out a missing result; fully rejecting

@@ -10,6 +10,11 @@ const history = [];
 let nextEventId = 0;
 let failNextCommand;
 let discoverablePeers = [];
+// The real gateway multiplexes every browser tab onto one owned tetherd socket,
+// so uploads are process-global here rather than owned by individual HTTP clients.
+const uploads = new Map();
+const maxUploadBytes = 256 * 1024 * 1024;
+const maxChunkBytes = 48 * 1024;
 
 const phone = {
   address: "40:F6:64:3D:7A:F1",
@@ -48,7 +53,7 @@ const durable = {
   protocol_info: {
     command: "protocol_info",
     version: 1,
-    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "peers"],
+    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files.upload", "peers"],
   },
   bt_status: {
     command: "bt_status",
@@ -132,6 +137,7 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   nextEventId = 0;
   failNextCommand = undefined;
   discoverablePeers = discoverPeer || withPeer ? [peer] : [];
+  uploads.clear();
   setPhonePaired(paired);
   durable.state_snapshot = emptyStateSnapshot();
   if (withPeer) {
@@ -232,6 +238,69 @@ function handleCommand(command) {
     durable.state_snapshot.paired_devices = [];
     durable.state_snapshot.connected_clients = [];
     publish({ command: "forget_device_result", fingerprint: command.fingerprint, forgotten: true });
+  }
+  if (command.command === "file_upload_start") {
+    const validId = typeof command.operation_id === "string" && command.operation_id.length <= 128 &&
+      /^[A-Za-z0-9_.-]+$/.test(command.operation_id) && command.operation_id !== "." && command.operation_id !== "..";
+    const validSize = Number.isSafeInteger(command.size) && command.size >= 0 && command.size <= maxUploadBytes;
+    const success = validId && validSize && typeof command.filename === "string" && command.filename.length > 0 &&
+      !uploads.has(command.operation_id) && uploads.size < 2;
+    if (success) {
+      uploads.set(command.operation_id, {
+        filename: command.filename,
+        size: command.size,
+        bytes: 0,
+        nextChunk: 0,
+        sending: false,
+      });
+    }
+    publish({
+      command: "file_upload_started",
+      operation_id: command.operation_id,
+      filename: command.filename,
+      success,
+      message: success ? undefined : "Upload rejected.",
+    });
+  }
+  if (command.command === "file_upload_chunk") {
+    const upload = uploads.get(command.operation_id);
+    const validBase64 = typeof command.data === "string" && command.data.length > 0 && command.data.length % 4 === 0 &&
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(command.data);
+    const bytes = validBase64 ? Buffer.from(command.data, "base64").byteLength : 0;
+    const valid = upload && !upload.sending && upload.nextChunk === command.chunk_index && bytes > 0 &&
+      bytes <= maxChunkBytes && upload.bytes + bytes <= upload.size;
+    if (valid) {
+      upload.bytes += bytes;
+      upload.nextChunk += 1;
+    } else {
+      uploads.delete(command.operation_id);
+      publish({
+        command: "file_send_complete",
+        operation_id: command.operation_id,
+        success: false,
+        message: "Upload chunk rejected.",
+      });
+    }
+  }
+  if (command.command === "file_upload_finish") {
+    const upload = uploads.get(command.operation_id);
+    const success = Boolean(upload && !upload.sending && upload.bytes === upload.size);
+    if (success) upload.sending = true;
+    else uploads.delete(command.operation_id);
+    later(() => {
+      if (success) uploads.delete(command.operation_id);
+      publish({
+        command: "file_send_complete",
+        operation_id: command.operation_id,
+        filename: upload?.filename,
+        success,
+        message: success ? "File sent." : "The upload was incomplete.",
+      });
+    }, 20);
+  }
+  if (command.command === "file_upload_cancel") {
+    const upload = uploads.get(command.operation_id);
+    if (upload && !upload.sending) uploads.delete(command.operation_id);
   }
   if (command.command === "bt_scan") {
     later(() => publish({ command: "bt_devices", devices: [phone] }), 20);

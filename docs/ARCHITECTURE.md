@@ -37,7 +37,7 @@ The Go gateway owns reconnection, fan-out, bounded replay, durable snapshots, HT
 
 Live events carry monotonic SSE IDs. A reconnecting `EventSource` can request events newer than its last ID, which preserves transient pairing progress and confirmation requests across short disconnects.
 
-Pairing commands carry an `operation_id`; progress, confirmation, and result events echo it. A browser tab ignores pairing events from operations it did not start.
+Pairing and browser file-upload commands carry an `operation_id`; their result events echo it. A browser tab ignores operation events it did not start. File bytes travel as bounded JSON chunks and are staged by `tetherd`; the Go gateway does not inspect or persist them.
 
 `tetherd` emits `protocol_info` with a protocol version and capability groups. The browser hides controls until the daemon advertises the matching capability.
 
