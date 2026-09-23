@@ -50,10 +50,14 @@ export function DeviceList({
               key={device.address}
               onClick={() => onSelect(device.address)}
             >
-              <span className="device-glyph" aria-hidden="true">▯</span>
+              <span className="device-glyph" aria-hidden="true">{device.airpods ? "◖◗" : "▯"}</span>
               <span className="device-copy">
                 <strong>{deviceDisplayName(device)}</strong>
-                <small>{device.bonded ? "Paired" : device.iphone ? "Ready to pair" : "Possible iPhone"}</small>
+                <small>
+                  {device.airpods
+                    ? device.connected ? "Connected" : device.paired ? "Paired" : "Nearby"
+                    : device.bonded ? "Paired" : device.iphone ? "Ready to pair" : "Possible iPhone"}
+                </small>
               </span>
               <span className={`row-dot ${device.connected ? "online" : ""}`} aria-hidden="true" />
             </button>

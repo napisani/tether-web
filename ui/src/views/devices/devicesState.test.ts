@@ -90,6 +90,67 @@ describe("reduceDevicesEvent", () => {
     expect(disconnected.pairing).toMatchObject({ phase: "complete", message: "Paired." });
   });
 
+  it("ignores malformed AirPods events", () => {
+    const malformed = { command: "bt_airpods", address: "AA:BB", name: "AirPods", ear: null } as unknown as DaemonEvent;
+    expect(reduceDevicesEvent(initialDevicesState, malformed)).toBe(initialDevicesState);
+  });
+
+  it("keeps AirPods state and releases an in-flight connection on disconnect", () => {
+    const state = reduceDevicesEvent(initialDevicesState, {
+      command: "bt_airpods",
+      address: "AA:BB",
+      name: "AirPods Pro",
+      left: 82,
+      right: -1,
+      case: 45,
+      ear: { primary: "in_ear", secondary: "unknown" },
+      in_ear: 1,
+      peer_taking_over: false,
+      peer_active: false,
+      peer_audio: false,
+      peer_call: false,
+      peer_holds_audio: false,
+      anc: "adaptive",
+      status: "live",
+      reason: "",
+    });
+    const connecting = reduceDevicesState(state, {
+      type: "airpods-connect-started",
+      address: "AA:BB",
+      token: "connect-1",
+    });
+    const disconnected = reduceDevicesState(connecting, { type: "daemon-disconnected" });
+
+    expect(disconnected.airpods?.left).toBe(82);
+    expect(disconnected.airpodsConnectingAddress).toBeUndefined();
+    expect(disconnected.airpodsMessage?.text).toContain("Connection to tetherd was lost");
+  });
+
+  it("ignores an expired timeout from an older AirPods operation", () => {
+    const active = {
+      ...initialDevicesState,
+      airpodsConnectingAddress: "AA:BB",
+      airpodsConnectingToken: "connect-new",
+    };
+    const next = reduceDevicesState(active, {
+      type: "airpods-connect-timeout",
+      address: "AA:BB",
+      token: "connect-old",
+    });
+
+    expect(next).toBe(active);
+  });
+
+  it("surfaces a failed AirPods connection result", () => {
+    const next = reduceDevicesEvent(
+      { ...initialDevicesState, airpodsConnectingAddress: "AA:BB", airpodsConnectingToken: "connect-1" },
+      { command: "bt_airpods_connect_result", success: false, message: "BlueZ refused the connection." },
+    );
+
+    expect(next.airpodsConnectingAddress).toBeUndefined();
+    expect(next.airpodsMessage).toEqual({ address: "AA:BB", text: "BlueZ refused the connection." });
+  });
+
   it("keeps the pairing result when the transient candidate disappears", () => {
     const pairedState = reduceDevicesEvent(
       {

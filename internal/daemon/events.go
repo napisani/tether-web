@@ -14,6 +14,7 @@ var durableEvents = map[string]struct{}{
 	"bt_status":             {},
 	"bt_devices":            {},
 	"bt_connection_changed": {},
+	"bt_airpods":            {},
 }
 
 func (c *Client) Subscribe(afterID *uint64) (gateway.Subscription, error) {

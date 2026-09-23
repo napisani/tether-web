@@ -29,11 +29,19 @@ const phone = {
   ancs_notifying: false,
 };
 
+const airpods = {
+  address: "AA:BB:CC:DD:EE:FF",
+  name: "AirPods Pro",
+  airpods: true,
+  paired: true,
+  connected: true,
+};
+
 const durable = {
   protocol_info: {
     command: "protocol_info",
     version: 1,
-    capabilities: ["bluetooth.connection", "bluetooth.pairing"],
+    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing"],
   },
   bt_status: {
     command: "bt_status",
@@ -95,13 +103,44 @@ function setPhonePaired(paired) {
   durable.bt_connection_changed = paired ? connectedConnection() : disconnectedConnection();
 }
 
-function reset({ paired = false } = {}) {
+function reset({ paired = false, withAirPods = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
   nextEventId = 0;
   failNextCommand = false;
   setPhonePaired(paired);
+  if (withAirPods) {
+    airpods.connected = true;
+    durable.bt_status = {
+      ...durable.bt_status,
+      airpods_enabled: true,
+      airpods_pause: "one-removed",
+      airpods_handoff: true,
+      calls_enabled: true,
+    };
+    durable.bt_devices = { command: "bt_devices", devices: [airpods] };
+    durable.bt_airpods = {
+      command: "bt_airpods",
+      address: airpods.address,
+      name: airpods.name,
+      left: 82,
+      right: 79,
+      case: 45,
+      ear: { primary: "in_ear", secondary: "out_of_ear" },
+      in_ear: 1,
+      peer_taking_over: false,
+      peer_active: false,
+      peer_audio: false,
+      peer_call: false,
+      peer_holds_audio: false,
+      status: "live",
+      reason: "",
+      anc: "transparency",
+    };
+  } else {
+    delete durable.bt_airpods;
+  }
 }
 
 function later(callback, delay) {
@@ -178,6 +217,31 @@ function handleCommand(command) {
       publish(durable.bt_devices);
       publish(durable.bt_connection_changed);
     }, 20);
+  }
+  if (command.command === "bt_airpods_connect") {
+    later(() => {
+      airpods.connected = command.connect;
+      durable.bt_devices = { command: "bt_devices", devices: [airpods] };
+      publish({ command: "bt_airpods_connect_result", success: true, message: "" });
+      publish(durable.bt_devices);
+    }, 20);
+  }
+  if (command.command === "bt_airpods_mode") {
+    durable.bt_airpods.anc = command.mode;
+    publish({ command: "bt_airpods_mode_result", success: true, message: "" });
+    publish(durable.bt_airpods);
+  }
+  if (command.command === "bt_airpods_enable") {
+    durable.bt_status.airpods_enabled = command.enabled;
+    publish(durable.bt_status);
+  }
+  if (command.command === "bt_airpods_pause") {
+    durable.bt_status.airpods_pause = command.mode;
+    publish(durable.bt_status);
+  }
+  if (command.command === "bt_airpods_handoff") {
+    durable.bt_status.airpods_handoff = command.enabled;
+    publish(durable.bt_status);
   }
   if (command.command === "bt_unpair") {
     later(() => {

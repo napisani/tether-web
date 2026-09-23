@@ -40,6 +40,7 @@ func TestClientBridgesUnixCommandsEventsSnapshotsAndReplay(t *testing.T) {
 		`{"command":"bt_status"}` + "\n",
 		`{"command":"bt_list_devices"}` + "\n",
 		`{"command":"bt_connection"}` + "\n",
+		`{"command":"bt_airpods"}` + "\n",
 	} {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -81,9 +82,17 @@ func TestClientBridgesUnixCommandsEventsSnapshotsAndReplay(t *testing.T) {
 		t.Fatalf("replay = %#v", reconnected.Replay)
 	}
 
+	if _, err := connection.Write([]byte(`{"command":"bt_airpods","address":"AA:BB"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitForSnapshotEvent(t, client, "bt_airpods")
+
 	snapshot := client.Snapshot()
 	if !snapshot.DaemonConnected || string(snapshot.Events["bt_status"]) != `{"command":"bt_status","available":true}` {
 		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	if string(snapshot.Events["bt_airpods"]) != `{"command":"bt_airpods","address":"AA:BB"}` {
+		t.Fatalf("AirPods snapshot = %s", snapshot.Events["bt_airpods"])
 	}
 	assertSnapshotGatewayStatus(t, snapshot, true)
 

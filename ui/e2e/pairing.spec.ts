@@ -53,6 +53,25 @@ test("forgets a bonded iPhone after confirmation", async ({ page, request }) => 
   await expect(page.getByText("Forgot someone’s iPhone.")).toBeVisible();
 });
 
+test("manages connected AirPods", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withAirPods: true } });
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "AirPods Pro" })).toBeVisible();
+  await expect(page.getByText("Left earbud 82% · Right earbud 79% · Case 45%")).toBeVisible();
+  await page.getByRole("button", { name: "Noise Cancellation" }).click();
+  await expect(page.getByRole("button", { name: "Noise Cancellation" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("combobox", { name: "Pause playback when" }).selectOption("both-removed");
+  await expect(page.getByRole("combobox", { name: "Pause playback when" })).toHaveValue("both-removed");
+  await page.getByRole("checkbox", { name: /Hand the AirPods/ }).click();
+  await expect(page.getByRole("checkbox", { name: /Hand the AirPods/ })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: /Manage AirPods/ }).click();
+  await expect(page.getByRole("button", { name: "Noise Cancellation" })).toBeDisabled();
+  await page.getByRole("checkbox", { name: /Manage AirPods/ }).click();
+  await page.getByRole("button", { name: "Disconnect" }).click();
+  await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
+});
+
 test("surfaces a gateway command failure", async ({ page, request }) => {
   await page.goto("/");
   await request.post("/__test/fail-next-command");

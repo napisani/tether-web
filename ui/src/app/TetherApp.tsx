@@ -2,6 +2,7 @@ import { useCallback, useReducer } from "react";
 import { useDaemonClient } from "../daemon/DaemonClient";
 import type { DaemonEvent } from "../protocol";
 import { DevicesView } from "../views/devices/DevicesView";
+import { useAirPodsCommands } from "../views/devices/useAirPodsCommands";
 import { useBluetoothCommands } from "../views/devices/useBluetoothCommands";
 import { AppShell } from "./AppShell";
 import { initialAppState, reduceAppState } from "./appState";
@@ -19,6 +20,7 @@ export function TetherApp() {
   useDaemonClient({ onConnectionChange, onEvent });
 
   const actions = useBluetoothCommands(state.devices.pairing.operationId, dispatch);
+  const airpodsActions = useAirPodsCommands(dispatch);
   const bluetoothAvailable = state.devices.bluetooth?.available ?? false;
   const phoneConnected = Boolean(
     state.devices.connection?.classic_connected || state.devices.connection?.le_connected,
@@ -39,6 +41,7 @@ export function TetherApp() {
         onUnpair={actions.unpair}
         onConfirmPairing={actions.confirmPairing}
         onResetPairing={actions.resetPairing}
+        airpodsActions={airpodsActions}
       />
     </AppShell>
   );

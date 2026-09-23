@@ -1,4 +1,5 @@
 import type {
+  AirPodsEvent,
   BluetoothConnectionEvent,
   BluetoothDevice,
   BluetoothStatusEvent,
@@ -25,6 +26,10 @@ export type DevicesState = {
   scanning: boolean;
   scanMessage?: string;
   pairing: PairingState;
+  airpods?: AirPodsEvent;
+  airpodsConnectingAddress?: string;
+  airpodsConnectingToken?: string;
+  airpodsMessage?: { address?: string; text: string };
 };
 
 export const initialDevicesState: DevicesState = {
@@ -41,7 +46,10 @@ export type DevicesAction =
   | { type: "operation-failed"; message: string }
   | { type: "scan-failed"; message: string }
   | { type: "daemon-disconnected" }
-  | { type: "pair-reset" };
+  | { type: "pair-reset" }
+  | { type: "airpods-connect-started"; address: string; token: string }
+  | { type: "airpods-connect-timeout"; address: string; token: string }
+  | { type: "airpods-command-failed"; message: string; address?: string; connect: boolean };
 
 export function reduceDevicesState(state: DevicesState, action: DevicesAction): DevicesState {
   switch (action.type) {
@@ -97,6 +105,11 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         ...state,
         scanning: false,
         scanMessage: state.scanning ? "Bluetooth scan stopped while Tether reconnects." : state.scanMessage,
+        airpodsConnectingAddress: undefined,
+        airpodsConnectingToken: undefined,
+        airpodsMessage: state.airpodsConnectingAddress
+          ? { address: state.airpodsConnectingAddress, text: "Connection to tetherd was lost. Try again after it reconnects." }
+          : state.airpodsMessage,
         pairing: operationInProgress
           ? {
               ...state.pairing,
@@ -110,6 +123,28 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
     }
     case "pair-reset":
       return { ...state, pairing: { phase: "idle" } };
+    case "airpods-connect-started":
+      return {
+        ...state,
+        airpodsConnectingAddress: action.address,
+        airpodsConnectingToken: action.token,
+        airpodsMessage: undefined,
+      };
+    case "airpods-connect-timeout":
+      if (state.airpodsConnectingAddress !== action.address || state.airpodsConnectingToken !== action.token) return state;
+      return {
+        ...state,
+        airpodsConnectingAddress: undefined,
+        airpodsConnectingToken: undefined,
+        airpodsMessage: { address: action.address, text: "No answer from tetherd. The AirPods connection may still have changed." },
+      };
+    case "airpods-command-failed":
+      return {
+        ...state,
+        airpodsConnectingAddress: action.connect ? undefined : state.airpodsConnectingAddress,
+        airpodsConnectingToken: action.connect ? undefined : state.airpodsConnectingToken,
+        airpodsMessage: { address: action.address, text: action.message },
+      };
   }
 }
 
@@ -118,12 +153,33 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
     case "bt_status":
       return { ...state, bluetooth: event as BluetoothStatusEvent };
     case "bt_devices": {
-      const visible = event.devices.filter((device) => device.iphone || device.apple_nearby);
+      const visible = event.devices.filter((device) => device.iphone || device.apple_nearby || device.airpods);
       const remembered = state.devices.filter(isAnonymousCandidate);
       return { ...state, devices: mergeDevices(remembered, visible) };
     }
     case "bt_connection_changed":
       return { ...state, connection: event as BluetoothConnectionEvent };
+    case "bt_airpods":
+      if (!isAirPodsEvent(event)) return state;
+      return { ...state, airpods: event, airpodsMessage: undefined };
+    case "bt_airpods_connect_result": {
+      const address = state.airpodsConnectingAddress;
+      return {
+        ...state,
+        airpodsConnectingAddress: undefined,
+        airpodsConnectingToken: undefined,
+        airpodsMessage: event.success
+          ? undefined
+          : { address, text: event.message || "Could not change the AirPods connection." },
+      };
+    }
+    case "bt_airpods_mode_result":
+      return {
+        ...state,
+        airpodsMessage: event.success
+          ? undefined
+          : { address: state.airpods?.address, text: event.message || "Could not change the listening mode." },
+      };
     case "bt_scan_result":
       return { ...state, scanning: false, scanMessage: event.message };
     case "bt_pair_progress":
@@ -181,4 +237,12 @@ function mergeDevices(...groups: BluetoothDevice[][]): BluetoothDevice[] {
 
 function belongsToActivePairing(pairing: PairingState, operationId?: string): boolean {
   return !operationId || operationId === pairing.operationId;
+}
+
+function isAirPodsEvent(event: DaemonEvent): event is AirPodsEvent {
+  if (event.command !== "bt_airpods" || typeof event.address !== "string" || typeof event.name !== "string") return false;
+  if (typeof event.left !== "number" || typeof event.right !== "number" || typeof event.case !== "number") return false;
+  if (!event.ear || typeof event.ear !== "object") return false;
+  const ear = event.ear as Record<string, unknown>;
+  return typeof ear.primary === "string" && typeof ear.secondary === "string" && typeof event.in_ear === "number";
 }

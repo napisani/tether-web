@@ -84,6 +84,7 @@ func (c *Client) sendBootstrapCommands(ctx context.Context) {
 		json.RawMessage(`{"command":"bt_status"}`),
 		json.RawMessage(`{"command":"bt_list_devices"}`),
 		json.RawMessage(`{"command":"bt_connection"}`),
+		json.RawMessage(`{"command":"bt_airpods"}`),
 	} {
 		if err := c.Send(ctx, command); err != nil {
 			return

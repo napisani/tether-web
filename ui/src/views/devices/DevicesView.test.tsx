@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DaemonState } from "../../app/appState";
 import { DevicesView } from "./DevicesView";
 import type { DevicesState } from "./devicesState";
+import type { AirPodsActions } from "./useAirPodsCommands";
 
 const pairedDaemon: DaemonState = {
   connected: true,
@@ -65,12 +66,20 @@ function renderDevicesView({
   onPair = vi.fn(),
   onUnpair = vi.fn(),
   onConfirmPairing = vi.fn(),
+  airpodsActions = {
+    connect: vi.fn(),
+    setManaged: vi.fn(),
+    setMode: vi.fn(),
+    setPause: vi.fn(),
+    setHandoff: vi.fn(),
+  },
 }: {
   daemon?: DaemonState;
   state?: DevicesState;
   onPair?: (address: string) => void;
   onUnpair?: (address: string) => void;
   onConfirmPairing?: (accept: boolean) => void;
+  airpodsActions?: AirPodsActions;
 } = {}) {
   render(
     <DevicesView
@@ -81,6 +90,7 @@ function renderDevicesView({
       onUnpair={onUnpair}
       onConfirmPairing={onConfirmPairing}
       onResetPairing={vi.fn()}
+      airpodsActions={airpodsActions}
     />,
   );
 }
@@ -193,5 +203,65 @@ describe("guided pairing view", () => {
     const dialog = screen.getByRole("dialog", { name: "Forget Someone’s iPhone?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Forget iPhone" }));
     expect(unpair).toHaveBeenCalledWith("38:9C:B2:42:3F:E7");
+  });
+
+  it("shows live AirPods controls with GTK-aligned gating", () => {
+    const actions: AirPodsActions = {
+      connect: vi.fn(),
+      setManaged: vi.fn(),
+      setMode: vi.fn(),
+      setPause: vi.fn(),
+      setHandoff: vi.fn(),
+    };
+    const airpods = {
+      address: "AA:BB:CC:DD:EE:FF",
+      name: "AirPods Pro",
+      airpods: true,
+      paired: true,
+      connected: true,
+    };
+    renderDevicesView({
+      state: {
+        ...pairedState,
+        bluetooth: {
+          ...pairedState.bluetooth!,
+          airpods_enabled: true,
+          airpods_pause: "one-removed",
+          airpods_handoff: true,
+          calls_enabled: true,
+        },
+        devices: [airpods],
+        airpods: {
+          command: "bt_airpods",
+          address: airpods.address,
+          name: airpods.name,
+          left: 82,
+          right: 79,
+          case: 45,
+          ear: { primary: "in_ear", secondary: "out_of_ear" },
+          in_ear: 1,
+          peer_taking_over: false,
+          peer_active: false,
+          peer_audio: false,
+          peer_call: false,
+          peer_holds_audio: false,
+          anc: "transparency",
+          status: "live",
+          reason: "",
+        },
+        pairing: { phase: "idle" },
+      },
+      airpodsActions: actions,
+    });
+
+    expect(screen.getByRole("heading", { name: "AirPods Pro" })).toBeInTheDocument();
+    expect(screen.getByText("Left earbud 82% · Right earbud 79% · Case 45%")).toBeInTheDocument();
+    expect(screen.getByText("One bud is in.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Transparency" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Noise Cancellation" }));
+    expect(actions.setMode).toHaveBeenCalledWith("anc");
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(actions.connect).toHaveBeenCalledWith(airpods.address, false);
   });
 });

@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import type { DaemonState } from "../../app/appState";
+import { AirPodsPane } from "./AirPodsPane";
 import { ConfirmForgetDialog, PairingCodeDialog, PairingProgress } from "./BluetoothPairing";
 import { DeviceList } from "./DeviceList";
 import { DevicePane } from "./DevicePane";
 import { deviceDisplayName } from "./device";
 import type { DevicesState } from "./devicesState";
+import type { AirPodsActions } from "./useAirPodsCommands";
 import { Notice, Welcome } from "./EmptyStates";
 import "./DevicesView.css";
 
@@ -16,6 +18,7 @@ type DevicesViewProps = {
   onUnpair: (address: string) => void;
   onConfirmPairing: (accept: boolean) => void;
   onResetPairing: () => void;
+  airpodsActions: AirPodsActions;
 };
 
 export function DevicesView({
@@ -26,6 +29,7 @@ export function DevicesView({
   onUnpair,
   onConfirmPairing,
   onResetPairing,
+  airpodsActions,
 }: DevicesViewProps) {
   const configuredAddress = state.bluetooth?.device_address;
   const initialAddress = configuredAddress || state.devices[0]?.address || "";
@@ -65,6 +69,19 @@ export function DevicesView({
             <Notice title="Tether is reconnecting" body="The web interface cannot reach tetherd yet. It will retry automatically." />
           ) : !bluetoothAvailable ? (
             <Notice title="Bluetooth is not ready" body="Complete the host Bluetooth setup, then restart the Tether deployment." />
+          ) : selectedDevice?.airpods ? (
+            <AirPodsPane
+              device={selectedDevice}
+              airpods={state.airpods?.address === selectedDevice.address ? state.airpods : undefined}
+              bluetooth={state.bluetooth}
+              connectingAddress={state.airpodsConnectingAddress}
+              message={
+                !state.airpodsMessage?.address || state.airpodsMessage.address === selectedDevice.address
+                  ? state.airpodsMessage?.text
+                  : undefined
+              }
+              actions={airpodsActions}
+            />
           ) : selectedDevice ? (
             <DevicePane
               device={selectedDevice}
