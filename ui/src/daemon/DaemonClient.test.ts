@@ -7,6 +7,16 @@ afterEach(() => {
 });
 
 describe("parseDaemonEvent", () => {
+  it("validates protocol capabilities before exposing them to the UI", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "protocol_info", version: 1, capabilities: null }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "protocol_info", version: 0, capabilities: [] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "protocol_info",
+      version: 1,
+      capabilities: ["bluetooth.pairing"],
+    }))).toMatchObject({ command: "protocol_info", version: 1 });
+  });
+
   it("rejects malformed peer lifecycle and discovery events", () => {
     expect(parseDaemonEvent(JSON.stringify({ command: "pair_accepted", connected: true }))).toBeUndefined();
     expect(parseDaemonEvent(JSON.stringify({ command: "discovery_result", devices: [{ name: "Phone" }] }))).toBeUndefined();
@@ -23,6 +33,61 @@ describe("parseDaemonEvent", () => {
       mdns_available: true,
       clipboard_available: true,
     }))).toBeUndefined();
+  });
+
+  it("validates Bluetooth status, diagnostics, and solicitation results", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, enabled: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, ancs_enabled: 1 }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "bt_status",
+      available: true,
+      capability: { mode: "compatibility", reasons: [], setup: [{ what: "Enable support", command: 42 }] },
+    }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "bt_connection_changed",
+      map_open: true,
+      map_error: false,
+    }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_solicit_result", success: true }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "bt_pair_result",
+      operation_id: "pair-1",
+      success: "yes",
+      status: "paired",
+      message: "Paired.",
+    }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "bt_pair_confirm_request",
+      operation_id: "pair-1",
+      code: 42731,
+    }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "bt_pair_confirm_request",
+      operation_id: "pair-1",
+      code: "confirm me",
+    }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "bt_status",
+      available: true,
+      enabled: false,
+      ancs_enabled: true,
+      capability: {
+        mode: "compatibility",
+        reasons: ["LE support is unavailable."],
+        setup: [{ what: "Enable support", command: "sudo systemctl restart bluetooth" }],
+      },
+    }))).toMatchObject({
+      command: "bt_status",
+      available: true,
+      enabled: false,
+      ancs_enabled: true,
+    });
+    expect(parseDaemonEvent(JSON.stringify({
+      command: "bt_pair_confirm_request",
+      operation_id: "pair-1",
+      code: "042731",
+    }))).toMatchObject({ command: "bt_pair_confirm_request", operation_id: "pair-1" });
   });
 
   it("rejects malformed file-transfer result events", () => {

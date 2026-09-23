@@ -54,6 +54,10 @@ export type DevicesState = {
   airpodsConnectingAddress?: string;
   airpodsConnectingToken?: string;
   airpodsMessage?: { address?: string; text: string };
+  bluetoothEnabledTarget?: boolean;
+  bluetoothEnabledToken?: string;
+  bluetoothSolicitToken?: string;
+  bluetoothMessage?: string;
   wifi: WifiState;
 };
 
@@ -74,14 +78,20 @@ export type DevicesAction =
   | { type: "scan-started" }
   | { type: "pair-started"; operationId: string; address: string }
   | { type: "unpair-started"; operationId: string; address: string }
-  | { type: "pair-confirmation-sent" }
-  | { type: "operation-failed"; message: string }
+  | { type: "pair-confirmation-sent"; operationId: string }
+  | { type: "operation-failed"; operationId: string; message: string }
   | { type: "scan-failed"; message: string }
   | { type: "daemon-disconnected" }
   | { type: "pair-reset" }
   | { type: "airpods-connect-started"; address: string; token: string }
   | { type: "airpods-connect-timeout"; address: string; token: string }
   | { type: "airpods-command-failed"; message: string; address?: string; connect: boolean }
+  | { type: "bluetooth-enabled-started"; enabled: boolean; token: string }
+  | { type: "bluetooth-enabled-failed"; token: string; message: string }
+  | { type: "bluetooth-enabled-timeout"; token: string }
+  | { type: "bluetooth-solicit-started"; token: string }
+  | { type: "bluetooth-solicit-failed"; token: string; message: string }
+  | { type: "bluetooth-solicit-timeout"; token: string }
   | { type: "peer-discovery-started"; token: string }
   | { type: "peer-discovery-failed"; token: string; message: string }
   | { type: "peer-discovery-timeout"; token: string }
@@ -122,6 +132,7 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         },
       };
     case "pair-confirmation-sent":
+      if (state.pairing.operationId !== action.operationId || state.pairing.phase !== "confirming") return state;
       return {
         ...state,
         pairing: {
@@ -132,6 +143,10 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         },
       };
     case "operation-failed":
+      if (
+        state.pairing.operationId !== action.operationId
+        || (state.pairing.phase !== "pairing" && state.pairing.phase !== "confirming")
+      ) return state;
       return {
         ...state,
         pairing: { ...state.pairing, phase: "error", code: undefined, detail: undefined, message: action.message },
@@ -149,6 +164,12 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         airpodsMessage: state.airpodsConnectingAddress
           ? { address: state.airpodsConnectingAddress, text: "Connection to tetherd was lost. Try again after it reconnects." }
           : state.airpodsMessage,
+        bluetoothEnabledTarget: undefined,
+        bluetoothEnabledToken: undefined,
+        bluetoothSolicitToken: undefined,
+        bluetoothMessage: state.bluetoothEnabledToken || state.bluetoothSolicitToken
+          ? "Bluetooth operation stopped while Tether reconnects."
+          : state.bluetoothMessage,
         wifi: {
           ...state.wifi,
           discovering: false,
@@ -193,6 +214,41 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         airpodsConnectingAddress: action.connect ? undefined : state.airpodsConnectingAddress,
         airpodsConnectingToken: action.connect ? undefined : state.airpodsConnectingToken,
         airpodsMessage: { address: action.address, text: action.message },
+      };
+    case "bluetooth-enabled-started":
+      return {
+        ...state,
+        bluetoothEnabledTarget: action.enabled,
+        bluetoothEnabledToken: action.token,
+        bluetoothMessage: "Updating Bluetooth preference…",
+      };
+    case "bluetooth-enabled-failed":
+      if (state.bluetoothEnabledToken !== action.token) return state;
+      return {
+        ...state,
+        bluetoothEnabledTarget: undefined,
+        bluetoothEnabledToken: undefined,
+        bluetoothMessage: action.message,
+      };
+    case "bluetooth-enabled-timeout":
+      if (state.bluetoothEnabledToken !== action.token) return state;
+      return {
+        ...state,
+        bluetoothEnabledTarget: undefined,
+        bluetoothEnabledToken: undefined,
+        bluetoothMessage: "No updated Bluetooth status arrived from tetherd. Check the connection before trying again.",
+      };
+    case "bluetooth-solicit-started":
+      return { ...state, bluetoothSolicitToken: action.token, bluetoothMessage: "Asking the iPhone to show its permissions…" };
+    case "bluetooth-solicit-failed":
+      if (state.bluetoothSolicitToken !== action.token) return state;
+      return { ...state, bluetoothSolicitToken: undefined, bluetoothMessage: action.message };
+    case "bluetooth-solicit-timeout":
+      if (state.bluetoothSolicitToken !== action.token) return state;
+      return {
+        ...state,
+        bluetoothSolicitToken: undefined,
+        bluetoothMessage: "No permission result arrived from tetherd. Check the iPhone, then try again.",
       };
     case "peer-discovery-started":
       return {
@@ -311,10 +367,21 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
           message: event.forgotten ? "Device forgotten." : "Could not forget the device.",
         },
       };
-    case "bt_status":
-      return { ...state, bluetooth: event as BluetoothStatusEvent };
+    case "bt_status": {
+      const completed = state.bluetoothEnabledToken && event.enabled === state.bluetoothEnabledTarget;
+      return {
+        ...state,
+        bluetooth: event as BluetoothStatusEvent,
+        bluetoothEnabledTarget: completed ? undefined : state.bluetoothEnabledTarget,
+        bluetoothEnabledToken: completed ? undefined : state.bluetoothEnabledToken,
+        bluetoothMessage: completed ? "Bluetooth connection preference updated." : state.bluetoothMessage,
+      };
+    }
     case "bt_devices": {
-      const visible = event.devices.filter((device) => device.iphone || device.apple_nearby || device.airpods);
+      const configuredAddress = state.bluetooth?.device_address?.toUpperCase();
+      const visible = event.devices.filter((device) =>
+        device.iphone || device.apple_nearby || device.airpods ||
+        (configuredAddress !== undefined && device.address.toUpperCase() === configuredAddress));
       const remembered = state.devices.filter(isAnonymousCandidate);
       return { ...state, devices: mergeDevices(remembered, visible) };
     }
@@ -343,6 +410,9 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
       };
     case "bt_scan_result":
       return { ...state, scanning: false, scanMessage: event.message };
+    case "bt_solicit_result":
+      if (!state.bluetoothSolicitToken) return state;
+      return { ...state, bluetoothSolicitToken: undefined, bluetoothMessage: event.message };
     case "bt_pair_progress":
       if (!belongsToActivePairing(state.pairing, event.operation_id)) return state;
       return {
@@ -397,7 +467,8 @@ function mergeDevices(...groups: BluetoothDevice[][]): BluetoothDevice[] {
 }
 
 function belongsToActivePairing(pairing: PairingState, operationId?: string): boolean {
-  return !operationId || operationId === pairing.operationId;
+  const active = pairing.phase === "pairing" || pairing.phase === "confirming";
+  return Boolean(active && operationId && pairing.operationId && operationId === pairing.operationId);
 }
 
 function wifiFromSnapshot(event: StateSnapshotEvent): WifiState {

@@ -20,6 +20,8 @@ type DevicesViewProps = {
   onPair: (address: string) => void;
   onUnpair: (address: string) => void;
   onConfirmPairing: (accept: boolean) => void;
+  onSetBluetoothEnabled: (enabled: boolean) => void;
+  onSolicitPermissions: () => void;
   onResetPairing: () => void;
   airpodsActions: AirPodsActions;
   peerActions: PeerActions;
@@ -33,6 +35,8 @@ export function DevicesView({
   onPair,
   onUnpair,
   onConfirmPairing,
+  onSetBluetoothEnabled,
+  onSolicitPermissions,
   onResetPairing,
   airpodsActions,
   peerActions,
@@ -56,6 +60,7 @@ export function DevicesView({
     (!selectedDevice ? state.wifi.peers[0] : undefined);
   const connection = state.connection;
   const pairingAvailable = daemon.protocol?.capabilities.includes("bluetooth.pairing") === true;
+  const bluetoothControlAvailable = daemon.protocol?.capabilities.includes("bluetooth.connection") === true;
   const peerDiscoveryAvailable = daemon.protocol?.capabilities.includes("peers") === true;
   const fileUploadAvailable = daemon.protocol?.capabilities.includes("files.upload") === true;
   const bluetoothAvailable = state.bluetooth?.available ?? false;
@@ -102,7 +107,7 @@ export function DevicesView({
               fileUploadAvailable={fileUploadAvailable}
               onForget={() => setForgetFingerprint(selectedPeer.fingerprint)}
             />
-          ) : !bluetoothAvailable ? (
+          ) : !bluetoothAvailable && !selectedDevice ? (
             <Notice title="Bluetooth is not ready" body="Complete the host Bluetooth setup, then restart the Tether deployment." />
           ) : selectedDevice?.airpods ? (
             <AirPodsPane
@@ -120,12 +125,19 @@ export function DevicesView({
           ) : selectedDevice ? (
             <DevicePane
               device={selectedDevice}
+              bluetooth={state.bluetooth}
               connection={isConfiguredDevice ? connection : undefined}
               isConfiguredDevice={isConfiguredDevice}
-              pairingAvailable={pairingAvailable}
+              pairingAvailable={pairingAvailable && bluetoothAvailable}
+              bluetoothControlAvailable={bluetoothControlAvailable && bluetoothAvailable}
               pairingBusy={pairingBusy}
+              bluetoothBusy={Boolean(state.bluetoothEnabledToken || state.bluetoothSolicitToken)}
+              bluetoothEnabledTarget={state.bluetoothEnabledTarget}
+              bluetoothMessage={state.bluetoothMessage}
               onPair={onPair}
               onUnpair={setForgetAddress}
+              onSetBluetoothEnabled={onSetBluetoothEnabled}
+              onSolicitPermissions={onSolicitPermissions}
             />
           ) : (
             <Welcome onScan={onScan} scanning={state.scanning} pairingAvailable={pairingAvailable} />

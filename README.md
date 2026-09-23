@@ -13,6 +13,7 @@ The first release provides the runtime scaffolding for a web client and the Devi
 - discover a possible iPhone from its Apple Nearby advertisement;
 - compare and explicitly confirm the Bluetooth pairing code;
 - display Classic, Low Energy, MAP, PBAP, and ANCS status;
+- show host setup commands, control Bluetooth supervision, and ask the iPhone to re-offer permissions;
 - forget an existing Bluetooth pairing;
 - recover pairing state after browser or daemon reconnects;
 - manage AirPods connection, battery and in-ear state, listening mode, pause-on-removal, and call handoff; and
@@ -23,7 +24,7 @@ This is not yet a complete replacement for Tether's GTK client. Messages, notifi
 
 ## Requirements
 
-- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with the `protocol_info`, Bluetooth `operation_id`, `apple_nearby`, and chunked local file-upload protocol additions.
+- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and the chunked local file-upload protocol additions.
 - Read/write access to the `tetherd` Unix socket.
 - Node.js 24 and Go 1.24 to build from source.
 

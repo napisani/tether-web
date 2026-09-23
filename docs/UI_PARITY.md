@@ -24,7 +24,13 @@ silently dropping behavior.
 
 Domain behavior belongs in `tetherd`. GTK and React may present state
 differently, but neither client should independently redefine pairing,
-messaging, contact, notification, call, or file-transfer policy.
+messaging, contact, notification, call, or file-transfer policy. The existing
+`tetherd` protocol is authoritative: parity work should adapt to its commands,
+events, and capabilities before considering an upstream change. Browser-local
+serialization, timeouts, and reconnect cleanup are preferred when they safely
+bridge a platform difference. Any unavoidable protocol addition must document
+the missing capability and remain narrow, backward-compatible, and separately
+reviewed upstream.
 
 ## Source correspondence
 
@@ -55,7 +61,7 @@ its ownership should still make the GTK/Web relationship obvious.
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
 | App shell | Partial | Shared header, GTK tab order, route status footer | View switching, shortcuts, settings entry, shared unread state |
-| Devices | Partial | Wi-Fi discovery, incoming/outgoing trust, online/offline state, forget flow, mDNS/firewall guidance, and file sending by picker or drop; Bluetooth discovery, pairing and connection capabilities; complete AirPods controls | Bluetooth setup/solicitation controls |
+| Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, and single-file sending; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Multi-file send queue and Send Clipboard action |
 | Messages | Not started | Navigation placeholder | Threads, search, conversation, drafts, compose/send, read state, permission guidance |
 | Notifications | Not started | Navigation placeholder | Notification list, refresh, removal, dismissal, connection guidance |
 | Calls | Not started | Navigation placeholder | Availability, call list, dial, answer, hang up, audio routing, network state |
@@ -70,9 +76,9 @@ user-visible capability.
 
 1. **Keep the common shell stable.** Route all daemon traffic through one client,
    keep app-wide navigation/status in `app/`, and keep feature state in its view.
-2. **Finish Devices parity.** AirPods, Wi-Fi peer management, and file sending
-   are complete. Add the remaining Bluetooth controls. Preserve the current
-   pairing workflow while adding the missing operations.
+2. **Finish Devices parity.** Bluetooth setup guidance, supervision, and
+   permission recovery are complete. Add GTK-equivalent multi-file queueing and
+   the Send Clipboard action while preserving capability gates and operation cleanup.
 3. **Add Messages.** Mirror thread visibility refresh, conversation selection,
    drafts, compose/send state, errors, and disconnect cleanup. Add shared contact
    completion and message formatting as those dependencies appear.
@@ -92,7 +98,7 @@ HTTP endpoints in the Go gateway.
 
 Every parity change should include the narrowest applicable checks:
 
-1. daemon protocol tests for new or changed command/event behavior;
+1. daemon protocol tests only when upstream command/event behavior must change;
 2. feature reducer tests for event ordering, stale operations, and disconnects;
 3. React component tests for visible states and user actions;
 4. Playwright coverage for complete browser workflows;
@@ -133,3 +139,11 @@ code. They are decisions to review, not implicit omissions.
   address. The browser scopes pending state to the selected address, prevents a
   duplicate operation for that device in one tab, and times out a missing result; fully rejecting
   stale results from another tab requires a future upstream protocol addition.
+- Bluetooth supervision and permission solicitation use the daemon's existing
+  global `bt_set_enabled`, `bt_status`, `bt_solicit`, and `bt_solicit_result`
+  semantics. The browser permits one local control operation at a time, bounds
+  pending state with a timeout, and clears it on daemon disconnect. Because the
+  global result has no operation ID, the next solicitation result while a local
+  request is pending is treated as the authoritative daemon outcome; concurrent
+  trusted clients are not independently attributable. The web does not require
+  a client-specific daemon protocol for this globally observable state.

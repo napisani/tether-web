@@ -83,7 +83,7 @@ export function DeviceList({
               <small>
                 {device.airpods
                   ? device.connected ? "Connected" : device.paired ? "Paired" : "Nearby"
-                  : device.bonded ? "Paired" : device.iphone ? "Ready to pair" : "Possible iPhone"}
+                  : device.paired ? "Paired" : device.iphone ? "Ready to pair" : "Possible iPhone"}
               </small>
             </span>
             <span className={`row-dot ${device.connected ? "online" : ""}`} aria-hidden="true" />

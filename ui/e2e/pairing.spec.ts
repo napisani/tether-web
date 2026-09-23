@@ -90,6 +90,43 @@ test("sends a browser file to a trusted peer", async ({ page, request }) => {
   await expect(page.getByText("File sent.")).toBeVisible();
 });
 
+test("guides Bluetooth setup and permission recovery", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { paired: true, bluetoothSetup: true } });
+  await page.goto("/");
+
+  await expect(page.getByText("Compatibility mode — messages and contacts, no notification mirroring.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bluetooth setup needed" })).toBeVisible();
+  await expect(page.getByText("sudo systemctl restart bluetooth")).toBeVisible();
+
+  const enabled = page.getByRole("checkbox", { name: /Connect to this iPhone/ });
+  await enabled.uncheck();
+  await expect(enabled).not.toBeChecked();
+  await expect(page.getByText("Bluetooth connection preference updated.")).toBeVisible();
+  await enabled.check();
+  await expect(enabled).toBeChecked();
+
+  await page.getByRole("button", { name: "Show iPhone Permissions" }).click();
+  await expect(page.getByText(/re-offer notification access/)).toBeVisible();
+});
+
+test("recovers a Bluetooth control after a gateway failure", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { paired: true, bluetoothSetup: true } });
+  await page.goto("/");
+  await request.post("/__test/fail-next-command", { data: { command: "bt_set_enabled" } });
+
+  const enabled = page.getByRole("checkbox", { name: /Connect to this iPhone/ });
+  await enabled.click();
+
+  await expect(page.getByText("Could not update the Bluetooth preference.")).toBeVisible();
+  await expect(enabled).toBeChecked();
+  await expect(enabled).toBeEnabled();
+
+  await request.post("/__test/fail-next-command", { data: { command: "bt_solicit" } });
+  await page.getByRole("button", { name: "Show iPhone Permissions" }).click();
+  await expect(page.getByText("Could not ask the iPhone for permissions.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Show iPhone Permissions" })).toBeEnabled();
+});
+
 test("manages connected AirPods", async ({ page, request }) => {
   await request.post("/__test/reset", { data: { withAirPods: true } });
   await page.goto("/");
@@ -107,6 +144,32 @@ test("manages connected AirPods", async ({ page, request }) => {
   await page.getByRole("checkbox", { name: /Manage AirPods/ }).click();
   await page.getByRole("button", { name: "Disconnect" }).click();
   await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
+});
+
+test("keeps device controls and dialogs usable at the configured viewport", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { paired: true, bluetoothSetup: true } });
+  await page.goto("/");
+
+  const viewport = page.viewportSize();
+  const list = await page.locator(".device-list-pane").boundingBox();
+  const pane = await page.locator(".device-pane").boundingBox();
+  expect(viewport).not.toBeNull();
+  expect(list).not.toBeNull();
+  expect(pane).not.toBeNull();
+  if (viewport!.width <= 820) {
+    expect(list!.y + list!.height).toBeLessThanOrEqual(pane!.y + 1);
+  } else {
+    expect(list!.x + list!.width).toBeLessThanOrEqual(pane!.x + 1);
+  }
+
+  await page.getByRole("button", { name: "Forget iPhone" }).click();
+  const dialog = page.getByRole("dialog", { name: "Forget Someone’s iPhone?" });
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(viewport!.width);
+  expect(dialogBox!.y).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(viewport!.height);
 });
 
 test("surfaces a gateway command failure", async ({ page, request }) => {

@@ -37,9 +37,12 @@ export function reduceAppState(state: AppState, action: AppAction): AppState {
   }
 
   if (action.type === "daemon-event") {
+    const disconnected = action.event.command === "gateway_status" && !action.event.daemon_connected;
     return {
       daemon: reduceDaemonEvent(state.daemon, action.event),
-      devices: reduceDevicesEvent(state.devices, action.event),
+      devices: disconnected
+        ? reduceDevicesState(state.devices, { type: "daemon-disconnected" })
+        : reduceDevicesEvent(state.devices, action.event),
     };
   }
 

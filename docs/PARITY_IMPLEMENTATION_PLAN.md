@@ -31,8 +31,8 @@ upstream bugs separately unless they directly block parity.
 
 Two established exceptions illustrate the threshold:
 
-- external numeric-comparison pairing needs operation ownership so one client
-  cannot answer another client's confirmation;
+- external numeric-comparison pairing needs operation correlation so a
+  conforming client only presents and answers the confirmation it initiated;
 - browsers cannot supply daemon-host paths to `send_file`, so bounded daemon-side
   staging is required before reusing the existing send path.
 
@@ -67,7 +67,7 @@ Deliver browser parity for the existing GTK Bluetooth setup/status experience:
 - supervision preference using existing `bt_set_enabled` and `bt_status` semantics;
 - iPhone permission solicitation using existing `bt_solicit` and
   `bt_solicit_result` semantics;
-- strict pairing operation ownership for numeric comparison;
+- strict client-side pairing correlation for numeric comparison;
 - post-pair/unpair refresh through existing `bt_status` and `bt_list_devices`
   commands;
 - capability-gated controls, unavailable states, timeout/failure recovery,

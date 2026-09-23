@@ -55,17 +55,23 @@ const durable = {
     version: 1,
     capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files.upload", "peers"],
   },
-  bt_status: {
-    command: "bt_status",
-    available: true,
-    enabled: true,
-    device_address: "",
-    version: "0.2.32-e2e",
-  },
+  bt_status: baseBluetoothStatus(),
   bt_devices: { command: "bt_devices", devices: [] },
   bt_connection_changed: disconnectedConnection(),
   state_snapshot: emptyStateSnapshot(),
 };
+
+function baseBluetoothStatus() {
+  return {
+    command: "bt_status",
+    available: true,
+    enabled: true,
+    ancs_enabled: true,
+    device_address: "",
+    version: "0.2.32-e2e",
+    capability: { mode: "full", reasons: [], setup: [] },
+  };
+}
 
 function emptyStateSnapshot() {
   return {
@@ -130,7 +136,7 @@ function setPhonePaired(paired) {
   durable.bt_connection_changed = paired ? connectedConnection() : disconnectedConnection();
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false } = {}) {
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
@@ -138,8 +144,26 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   failNextCommand = undefined;
   discoverablePeers = discoverPeer || withPeer ? [peer] : [];
   uploads.clear();
+  durable.bt_status = baseBluetoothStatus();
   setPhonePaired(paired);
   durable.state_snapshot = emptyStateSnapshot();
+  if (bluetoothSetup && paired) {
+    durable.bt_status.capability = {
+      mode: "compatibility",
+      reasons: ["The adapter cannot advertise as a peripheral."],
+      setup: [{
+        what: "Enable BlueZ experimental mode, then restart Bluetooth.",
+        command: "sudo systemctl restart bluetooth",
+      }],
+    };
+    durable.bt_connection_changed = {
+      ...connectedConnection(),
+      map_open: false,
+      map_error: "forbidden",
+      ancs_ready: false,
+      ancs_reason: "The iPhone has not granted notification access.",
+    };
+  }
   if (withPeer) {
     durable.state_snapshot.pending_pairs = [{ fingerprint: peer.fingerprint, device_name: peer.name }];
     durable.state_snapshot.connected_clients = [{
@@ -348,6 +372,17 @@ function handleCommand(command) {
       publish(durable.bt_devices);
       publish(durable.bt_connection_changed);
     }, 20);
+  }
+  if (command.command === "bt_set_enabled") {
+    durable.bt_status.enabled = command.enabled;
+    publish(durable.bt_status);
+  }
+  if (command.command === "bt_solicit") {
+    later(() => publish({
+      command: "bt_solicit_result",
+      success: true,
+      message: "Asked the iPhone to re-offer notification access.",
+    }), 20);
   }
   if (command.command === "bt_airpods_connect") {
     later(() => {

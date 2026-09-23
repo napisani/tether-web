@@ -10,10 +10,23 @@ export interface ProtocolInfoEvent extends DaemonEventBase {
   capabilities: string[];
 }
 
+export interface BluetoothSetupStep extends JsonRecord {
+  what: string;
+  command: string;
+}
+
+export interface BluetoothCapability extends JsonRecord {
+  mode: "full" | "compatibility";
+  reasons: string[];
+  setup: BluetoothSetupStep[];
+}
+
 export interface BluetoothStatusEvent extends DaemonEventBase {
   command: "bt_status";
   available: boolean;
   enabled?: boolean;
+  ancs_enabled?: boolean;
+  capability?: BluetoothCapability | null;
   error?: string;
   version?: string;
   version_supported?: boolean;
@@ -64,6 +77,8 @@ export interface BluetoothConnectionEvent extends DaemonEventBase {
   le_connected?: boolean;
   map_open?: boolean;
   pbap_open?: boolean;
+  map_error?: string;
+  pbap_error?: string;
   ancs_ready?: boolean;
   link_reason?: string;
   profile_reason?: string;
@@ -93,10 +108,17 @@ export interface BluetoothUnpairResultEvent extends DaemonEventBase {
   message: string;
 }
 
+export interface BluetoothSolicitResultEvent extends DaemonEventBase {
+  command: "bt_solicit_result";
+  success: boolean;
+  message: string;
+}
+
 export type BluetoothResultEvent =
   | BluetoothScanResultEvent
   | BluetoothPairResultEvent
-  | BluetoothUnpairResultEvent;
+  | BluetoothUnpairResultEvent
+  | BluetoothSolicitResultEvent;
 
 export interface BluetoothPairingProgressEvent extends DaemonEventBase {
   command: "bt_pair_progress";
@@ -270,6 +292,14 @@ export interface BluetoothScanCommand extends JsonRecord {
   command: "bt_scan";
 }
 
+export interface BluetoothStatusCommand extends JsonRecord {
+  command: "bt_status";
+}
+
+export interface BluetoothListDevicesCommand extends JsonRecord {
+  command: "bt_list_devices";
+}
+
 export interface BluetoothPairCommand extends JsonRecord {
   command: "bt_pair";
   address: string;
@@ -286,6 +316,15 @@ export interface BluetoothPairConfirmationCommand extends JsonRecord {
   command: "bt_pair_confirm";
   operation_id: string;
   accept: boolean;
+}
+
+export interface BluetoothSetEnabledCommand extends JsonRecord {
+  command: "bt_set_enabled";
+  enabled: boolean;
+}
+
+export interface BluetoothSolicitCommand extends JsonRecord {
+  command: "bt_solicit";
 }
 
 // Enable, pause, and handoff settings complete when tetherd republishes bt_status;
@@ -364,9 +403,13 @@ export interface AirPodsConnectCommand extends JsonRecord {
 
 export type DaemonCommand =
   | BluetoothScanCommand
+  | BluetoothStatusCommand
+  | BluetoothListDevicesCommand
   | BluetoothPairCommand
   | BluetoothUnpairCommand
   | BluetoothPairConfirmationCommand
+  | BluetoothSetEnabledCommand
+  | BluetoothSolicitCommand
   | AirPodsEnableCommand
   | AirPodsPauseCommand
   | AirPodsHandoffCommand

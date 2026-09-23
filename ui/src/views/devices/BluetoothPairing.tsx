@@ -1,4 +1,5 @@
 import type { PairingState } from "./devicesState";
+import { ModalDialog } from "./ModalDialog";
 
 export function PairingProgress({ pairing, onReset }: { pairing: PairingState; onReset: () => void }) {
   const busy = pairing.phase === "pairing" || pairing.phase === "confirming";
@@ -18,36 +19,32 @@ export function PairingProgress({ pairing, onReset }: { pairing: PairingState; o
 
 export function PairingCodeDialog({ code, onAnswer }: { code: string; onAnswer: (accept: boolean) => void }) {
   return (
-    <div className="dialog-backdrop">
-      <section className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="pairing-dialog-title">
-        <span className="eyebrow">Security check</span>
-        <h2 id="pairing-dialog-title">Does your iPhone show this code?</h2>
-        <div className="code-display" aria-label={`Pairing code ${code}`}>
-          {code.split("").map((digit, index) => <span key={`${index}-${digit}`}>{digit}</span>)}
-        </div>
-        <p>Only continue when every digit matches. A different code means this is not the same pairing request.</p>
-        <div className="dialog-actions">
-          <button className="secondary-button" type="button" autoFocus onClick={() => onAnswer(false)}>Cancel pairing</button>
-          <button className="primary-button" type="button" onClick={() => onAnswer(true)}>Codes match</button>
-        </div>
-      </section>
-    </div>
+    <ModalDialog labelledBy="pairing-dialog-title" onCancel={() => onAnswer(false)}>
+      <span className="eyebrow">Security check</span>
+      <h2 id="pairing-dialog-title">Does your iPhone show this code?</h2>
+      <div className="code-display" aria-label={`Pairing code ${code}`}>
+        {code.split("").map((digit, index) => <span key={`${index}-${digit}`}>{digit}</span>)}
+      </div>
+      <p>Only continue when every digit matches. A different code means this is not the same pairing request.</p>
+      <div className="dialog-actions">
+        <button className="secondary-button" type="button" onClick={() => onAnswer(false)}>Cancel pairing</button>
+        <button className="primary-button" type="button" onClick={() => onAnswer(true)}>Codes match</button>
+      </div>
+    </ModalDialog>
   );
 }
 
 export function ConfirmForgetDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
   return (
-    <div className="dialog-backdrop">
-      <section className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="forget-dialog-title">
-        <span className="eyebrow">Remove Bluetooth bond</span>
-        <h2 id="forget-dialog-title">Forget {name}?</h2>
-        <p>Also remove this computer from the iPhone’s Bluetooth settings before pairing again. Otherwise the phone can keep the old bond.</p>
-        <div className="dialog-actions">
-          <button className="secondary-button" type="button" autoFocus onClick={onCancel}>Keep iPhone</button>
-          <button className="secondary-button danger" type="button" onClick={onConfirm}>Forget iPhone</button>
-        </div>
-      </section>
-    </div>
+    <ModalDialog labelledBy="forget-dialog-title" onCancel={onCancel}>
+      <span className="eyebrow">Remove Bluetooth bond</span>
+      <h2 id="forget-dialog-title">Forget {name}?</h2>
+      <p>Also remove this computer from the iPhone’s Bluetooth settings before pairing again. Otherwise the phone can keep the old bond.</p>
+      <div className="dialog-actions">
+        <button className="secondary-button" type="button" onClick={onCancel}>Keep iPhone</button>
+        <button className="secondary-button danger" type="button" onClick={onConfirm}>Forget iPhone</button>
+      </div>
+    </ModalDialog>
   );
 }
 

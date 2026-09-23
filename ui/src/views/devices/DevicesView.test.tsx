@@ -75,6 +75,8 @@ function renderDevicesView({
   onPair = vi.fn(),
   onUnpair = vi.fn(),
   onConfirmPairing = vi.fn(),
+  onSetBluetoothEnabled = vi.fn(),
+  onSolicitPermissions = vi.fn(),
   airpodsActions = {
     connect: vi.fn(),
     setManaged: vi.fn(),
@@ -101,6 +103,8 @@ function renderDevicesView({
   onPair?: (address: string) => void;
   onUnpair?: (address: string) => void;
   onConfirmPairing?: (accept: boolean) => void;
+  onSetBluetoothEnabled?: (enabled: boolean) => void;
+  onSolicitPermissions?: () => void;
   airpodsActions?: AirPodsActions;
   peerActions?: PeerActions;
   fileTransfer?: FileTransferActions;
@@ -113,6 +117,8 @@ function renderDevicesView({
       onPair={onPair}
       onUnpair={onUnpair}
       onConfirmPairing={onConfirmPairing}
+      onSetBluetoothEnabled={onSetBluetoothEnabled}
+      onSolicitPermissions={onSolicitPermissions}
       onResetPairing={vi.fn()}
       airpodsActions={airpodsActions}
       peerActions={peerActions}
@@ -133,6 +139,98 @@ describe("guided pairing view", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Codes match" }));
     expect(confirmPairing).toHaveBeenCalledWith(true);
+  });
+
+  it("traps dialog focus, handles Escape, and keeps DOM focus order", () => {
+    const confirmPairing = vi.fn();
+    renderDevicesView({ onConfirmPairing: confirmPairing });
+
+    const dialog = screen.getByRole("dialog", { name: "Does your iPhone show this code?" });
+    const cancel = within(dialog).getByRole("button", { name: "Cancel pairing" });
+    const accept = within(dialog).getByRole("button", { name: "Codes match" });
+    expect(cancel).toHaveFocus();
+
+    accept.focus();
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(cancel).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(confirmPairing).toHaveBeenCalledWith(false);
+  });
+
+  it("shows Bluetooth setup, connection control, and permission solicitation", () => {
+    const setEnabled = vi.fn();
+    const solicit = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    renderDevicesView({
+      state: {
+        ...pairedState,
+        bluetooth: {
+          ...pairedState.bluetooth!,
+          enabled: true,
+          ancs_enabled: true,
+          capability: {
+            mode: "compatibility",
+            reasons: ["The adapter cannot advertise as a peripheral."],
+            setup: [{
+              what: "Enable BlueZ experimental mode, then restart Bluetooth.",
+              command: "sudo systemctl restart bluetooth",
+            }],
+          },
+        },
+        connection: {
+          ...pairedState.connection!,
+          map_open: false,
+          map_error: "forbidden",
+          ancs_ready: false,
+          ancs_reason: "The iPhone has not granted notification access.",
+        },
+        pairing: { phase: "idle" },
+      },
+      onSetBluetoothEnabled: setEnabled,
+      onSolicitPermissions: solicit,
+    });
+
+    expect(screen.getByText("Compatibility mode — messages and contacts, no notification mirroring.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Bluetooth setup needed" })).toBeInTheDocument();
+    expect(screen.getByText("The adapter cannot advertise as a peripheral.")).toBeInTheDocument();
+    expect(screen.getByText("forbidden")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy commands" }));
+    expect(writeText).toHaveBeenCalledWith("sudo systemctl restart bluetooth");
+    fireEvent.click(screen.getByRole("checkbox", { name: /Connect to this iPhone/ }));
+    expect(setEnabled).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Show iPhone Permissions" }));
+    expect(solicit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps setup diagnostics visible when Bluetooth is unavailable", () => {
+    const unavailableState: DevicesState = {
+      ...pairedState,
+      bluetooth: {
+        ...pairedState.bluetooth!,
+        available: false,
+        capability: {
+          mode: "compatibility",
+          reasons: ["BlueZ is not running."],
+          setup: [{ what: "Start Bluetooth.", command: "sudo systemctl start bluetooth" }],
+        },
+      },
+      pairing: { phase: "idle" },
+    };
+    renderDevicesView({
+      daemon: {
+        ...pairedDaemon,
+        protocol: { ...pairedDaemon.protocol!, capabilities: ["bluetooth.pairing", "bluetooth.connection"] },
+      },
+      state: unavailableState,
+    });
+
+    expect(screen.getByText("Bluetooth is unavailable on this machine.")).toBeInTheDocument();
+    expect(screen.getByText("BlueZ is not running.")).toBeInTheDocument();
+    expect(screen.getByText("sudo systemctl start bluetooth")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Connect to this iPhone/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Forget iPhone" })).not.toBeInTheDocument();
   });
 
   it("offers an Apple nearby advertisement as a possible iPhone", () => {
@@ -216,6 +314,8 @@ describe("guided pairing view", () => {
     expect(screen.queryByRole("button", { name: "Scan for iPhones" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Scan for iPhone" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Forget iPhone" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Connect to this iPhone/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show iPhone Permissions" })).not.toBeInTheDocument();
     expect(screen.getByText("This version of tetherd does not advertise browser pairing controls.")).toBeInTheDocument();
   });
 

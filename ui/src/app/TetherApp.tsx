@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer } from "react";
-import { useDaemonClient } from "../daemon/DaemonClient";
+import { sendDaemonCommand, useDaemonClient } from "../daemon/DaemonClient";
 import type { DaemonEvent } from "../protocol";
 import { DevicesView } from "../views/devices/DevicesView";
 import { useAirPodsCommands } from "../views/devices/useAirPodsCommands";
@@ -23,12 +23,18 @@ export function TetherApp() {
     (event: DaemonEvent) => {
       fileTransfer.handleEvent(event);
       dispatch({ type: "daemon-event", event });
+      if (event.command === "bt_pair_result" || event.command === "bt_unpair_result") {
+        void Promise.allSettled([
+          sendDaemonCommand({ command: "bt_status" }),
+          sendDaemonCommand({ command: "bt_list_devices" }),
+        ]);
+      }
     },
     [fileTransfer.handleEvent],
   );
   useDaemonClient({ onConnectionChange, onEvent });
 
-  const actions = useBluetoothCommands(state.devices.pairing.operationId, dispatch);
+  const actions = useBluetoothCommands(state.devices.pairing, dispatch);
   const airpodsActions = useAirPodsCommands(dispatch);
   const peerActions = usePeerCommands(dispatch);
   const peerDiscoveryAvailable = state.daemon.protocol?.capabilities.includes("peers") === true;
@@ -62,6 +68,8 @@ export function TetherApp() {
         onPair={actions.pair}
         onUnpair={actions.unpair}
         onConfirmPairing={actions.confirmPairing}
+        onSetBluetoothEnabled={actions.setEnabled}
+        onSolicitPermissions={actions.solicitPermissions}
         onResetPairing={actions.resetPairing}
         airpodsActions={airpodsActions}
         peerActions={peerActions}

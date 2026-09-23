@@ -189,6 +189,25 @@ describe("reduceDevicesEvent", () => {
     expect(state.scanMessage).toBe("Bluetooth scan finished.");
   });
 
+  it("keeps the configured supervised device visible without Apple metadata", () => {
+    const configured = reduceDevicesEvent({
+      ...initialDevicesState,
+      bluetooth: { command: "bt_status", available: true, device_address: "aa:bb:cc:dd:ee:ff" },
+    }, {
+      command: "bt_devices",
+      devices: [{
+        address: "AA:BB:CC:DD:EE:FF",
+        name: "Configured phone",
+        iphone: false,
+        apple_nearby: false,
+        airpods: false,
+      }],
+    });
+
+    expect(configured.devices).toHaveLength(1);
+    expect(configured.devices[0]?.name).toBe("Configured phone");
+  });
+
   it("ignores pairing messages for another browser operation", () => {
     const pairingState = {
       ...initialDevicesState,
@@ -208,6 +227,150 @@ describe("reduceDevicesEvent", () => {
     });
 
     expect(next.pairing.detail).toBe("Starting pairing.");
+  });
+
+  it("ignores delayed pairing events after the operation reaches a terminal state", () => {
+    const completed = {
+      ...initialDevicesState,
+      pairing: { phase: "complete" as const, operationId: "pair-1", message: "Paired." },
+    };
+    const delayedProgress = reduceDevicesEvent(completed, {
+      command: "bt_pair_progress",
+      operation_id: "pair-1",
+      step: "pairing",
+      detail: "Delayed progress.",
+    });
+    const delayedConfirmation = reduceDevicesEvent(completed, {
+      command: "bt_pair_confirm_request",
+      operation_id: "pair-1",
+      code: "042731",
+    });
+    const delayedResult = reduceDevicesEvent(completed, {
+      command: "bt_pair_result",
+      operation_id: "pair-1",
+      success: false,
+      status: "error",
+      message: "Delayed failure.",
+    });
+
+    expect(delayedProgress).toBe(completed);
+    expect(delayedConfirmation).toBe(completed);
+    expect(delayedResult).toBe(completed);
+  });
+
+  it("scopes local pairing command failures and confirmations to the active operation", () => {
+    const active = reduceDevicesState(initialDevicesState, {
+      type: "pair-started",
+      operationId: "current",
+      address: "AA:BB",
+    });
+    const staleFailure = reduceDevicesState(active, {
+      type: "operation-failed",
+      operationId: "old",
+      message: "Old failure.",
+    });
+    expect(staleFailure.pairing).toEqual(active.pairing);
+
+    const failed = reduceDevicesState(staleFailure, {
+      type: "operation-failed",
+      operationId: "current",
+      message: "Current failure.",
+    });
+    expect(failed.pairing).toMatchObject({ phase: "error", operationId: "current", message: "Current failure." });
+
+    const completed = {
+      ...active,
+      pairing: { ...active.pairing, phase: "complete" as const, message: "Paired." },
+    };
+    const lateFailure = reduceDevicesState(completed, {
+      type: "operation-failed",
+      operationId: "current",
+      message: "Late transport failure.",
+    });
+    expect(lateFailure).toBe(completed);
+
+    const confirming = {
+      ...active,
+      pairing: { ...active.pairing, phase: "confirming" as const, code: "042731" },
+    };
+    expect(reduceDevicesState(confirming, {
+      type: "pair-confirmation-sent",
+      operationId: "old",
+    })).toBe(confirming);
+    expect(reduceDevicesState(confirming, {
+      type: "pair-confirmation-sent",
+      operationId: "current",
+    }).pairing).toMatchObject({ phase: "pairing", operationId: "current", code: undefined });
+  });
+
+  it("completes Bluetooth settings when the daemon reports the requested global state", () => {
+    const started = reduceDevicesState(initialDevicesState, {
+      type: "bluetooth-enabled-started",
+      enabled: false,
+      token: "setting-1",
+    });
+    const unchanged = reduceDevicesEvent(started, { command: "bt_status", available: true, enabled: true });
+    expect(unchanged.bluetoothEnabledToken).toBe("setting-1");
+
+    const completed = reduceDevicesEvent(unchanged, {
+      command: "bt_status",
+      available: true,
+      enabled: false,
+    });
+    expect(completed.bluetoothEnabledToken).toBeUndefined();
+    expect(completed.bluetoothMessage).toBe("Bluetooth connection preference updated.");
+  });
+
+  it("releases Bluetooth setting and solicitation controls on timeout or failure", () => {
+    const setting = reduceDevicesState(initialDevicesState, {
+      type: "bluetooth-enabled-started",
+      enabled: false,
+      token: "setting-current",
+    });
+    const staleSettingTimeout = reduceDevicesState(setting, {
+      type: "bluetooth-enabled-timeout",
+      token: "setting-old",
+    });
+    expect(staleSettingTimeout.bluetoothEnabledToken).toBe("setting-current");
+    const settingTimedOut = reduceDevicesState(staleSettingTimeout, {
+      type: "bluetooth-enabled-timeout",
+      token: "setting-current",
+    });
+    expect(settingTimedOut.bluetoothEnabledToken).toBeUndefined();
+    expect(settingTimedOut.bluetoothMessage).toContain("No updated Bluetooth status");
+
+    const solicitation = reduceDevicesState(settingTimedOut, {
+      type: "bluetooth-solicit-started",
+      token: "solicit-current",
+    });
+    const failed = reduceDevicesState(solicitation, {
+      type: "bluetooth-solicit-failed",
+      token: "solicit-current",
+      message: "Could not ask the iPhone for permissions.",
+    });
+    expect(failed.bluetoothSolicitToken).toBeUndefined();
+    expect(failed.bluetoothMessage).toContain("Could not ask");
+  });
+
+  it("applies the next global solicitation result only while a local request is pending", () => {
+    const unsolicited = reduceDevicesEvent(initialDevicesState, {
+      command: "bt_solicit_result",
+      success: false,
+      message: "No local request is waiting.",
+    });
+    expect(unsolicited).toBe(initialDevicesState);
+
+    const pending = reduceDevicesState(initialDevicesState, { type: "bluetooth-solicit-started", token: "current" });
+    const staleTimeout = reduceDevicesState(pending, { type: "bluetooth-solicit-timeout", token: "old" });
+    expect(staleTimeout.bluetoothSolicitToken).toBe("current");
+
+    const completed = reduceDevicesEvent(staleTimeout, {
+      command: "bt_solicit_result",
+      success: true,
+      message: "Asked the iPhone to re-offer notification access.",
+    });
+    expect(completed.bluetoothSolicitToken).toBeUndefined();
+    expect(completed.bluetoothMessage).toContain("re-offer");
   });
 
   it("clears in-flight work when the daemon disconnects", () => {

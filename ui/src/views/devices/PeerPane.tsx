@@ -1,4 +1,5 @@
 import type { WifiPeer, WifiState } from "./devicesState";
+import { ModalDialog } from "./ModalDialog";
 import { FileTransfer } from "./FileTransfer";
 import type { FileTransferActions } from "./useFileTransfer";
 import type { PeerActions } from "./usePeerCommands";
@@ -91,15 +92,13 @@ export function PeerPane({
 
 export function ConfirmPeerForgetDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <div className="pairing-dialog" role="dialog" aria-modal="true" aria-labelledby="forget-peer-title">
-        <h2 id="forget-peer-title">Forget {name}?</h2>
-        <p>Tether will stop trusting this device. Forget this computer on the other device too before pairing again.</p>
-        <div className="dialog-actions">
-          <button className="secondary-button" type="button" onClick={onCancel}>Cancel</button>
-          <button className="primary-button" type="button" onClick={onConfirm}>Forget device</button>
-        </div>
+    <ModalDialog labelledBy="forget-peer-title" onCancel={onCancel}>
+      <h2 id="forget-peer-title">Forget {name}?</h2>
+      <p>Tether will stop trusting this device. Forget this computer on the other device too before pairing again.</p>
+      <div className="dialog-actions">
+        <button className="secondary-button" type="button" onClick={onCancel}>Cancel</button>
+        <button className="primary-button" type="button" onClick={onConfirm}>Forget device</button>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
