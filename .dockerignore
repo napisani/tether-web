@@ -1,0 +1,7 @@
+.git
+.github
+bin
+ui/node_modules
+ui/test-results
+ui/playwright-report
+ui/.playwright-cli
