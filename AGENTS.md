@@ -69,7 +69,23 @@ Keep domain decisions in `tetherd`. Neither GTK nor the web client should indepe
 
 Parity means equivalent user outcomes and state handling, not pixel-identical interfaces. Browser- or desktop-specific behavior may differ, but intentional differences must be explicit in code comments or web documentation. Do not silently omit a GTK behavior from an otherwise equivalent web view.
 
-When a Tether protocol change affects this client, update the concrete types and focused tests here. Keep upstream protocol changes in a separate Tether pull request.
+When a Tether protocol change affects this client, update the concrete types and focused tests here.
+
+### Protocol authority and change threshold
+
+Treat the protocol exposed by upstream `tetherd` as authoritative. The web client adapts to that protocol; it must not assume the protocol should change merely because a browser-specific implementation would be easier with a different event shape, command, capability, or correlation token.
+
+For each parity feature:
+
+1. Inspect GTK and the corresponding daemon command/event handling.
+2. Exercise the existing protocol before proposing an upstream change.
+3. Implement browser-local presentation, serialization, pending state, timeouts, and reconnect cleanup where those are sufficient.
+4. Use the Go gateway as a transparent transport. Do not translate existing commands into a web-specific domain protocol.
+5. If parity is genuinely impossible through the exposed protocol, document the exact missing capability and why client-side adaptation is unsafe or insufficient. Obtain explicit owner agreement before changing upstream Tether.
+
+Any necessary upstream change must be the smallest backward-compatible protocol addition, live in a separate Tether branch and pull request, preserve GTK behavior, and avoid unrelated daemon or GTK refactoring. Do not modify GTK merely to make the web client easier to implement. Shared upstream bugs discovered during parity work should be verified and handled separately from the web feature unless they directly block it.
+
+Examples of justified protocol additions are browser file staging, because a browser cannot supply a daemon-host filesystem path, and operation ownership for external numeric-comparison pairing, where accepting the wrong client's confirmation would be unsafe. Convenience-only correlation for globally observable status is not enough by itself.
 
 ## Go gateway boundaries
 

@@ -1,0 +1,151 @@
+# GTK parity implementation plan
+
+## Objective
+
+Reach browser parity with every feature currently supported by the upstream
+[`zackb/tether`](https://github.com/zackb/tether) GTK client while keeping
+`tether-web` an independent client of the authoritative `tetherd` protocol.
+
+The Go gateway remains a bounded transport adapter. Domain behavior stays in
+`tetherd`, and React owns browser presentation and client-local lifecycle state.
+The private repository must not be published and infrastructure must not be
+deployed as part of this plan.
+
+## Protocol-first rule
+
+Upstream `tetherd` defines the protocol. For every feature:
+
+1. Inspect the canonical GTK implementation and corresponding daemon handlers.
+2. Exercise the existing commands, events, and capabilities first.
+3. Prefer browser-local serialization, pending state, timeouts, and reconnect
+   cleanup when those can safely bridge platform differences.
+4. Keep the Go gateway transparent; do not invent feature-specific HTTP APIs or
+   translate the daemon protocol into a second domain model.
+5. Do not assume Tether must change to make the web implementation easier.
+
+If the existing protocol cannot safely produce the GTK-equivalent outcome,
+document the exact gap and stop for owner agreement. Any approved Tether change
+must be minimal, backward-compatible, separately branched and reviewed, preserve
+GTK behavior, and avoid unrelated daemon or GTK refactoring. Handle unrelated
+upstream bugs separately unless they directly block parity.
+
+Two established exceptions illustrate the threshold:
+
+- external numeric-comparison pairing needs operation ownership so one client
+  cannot answer another client's confirmation;
+- browsers cannot supply daemon-host paths to `send_file`, so bounded daemon-side
+  staging is required before reusing the existing send path.
+
+## Batch delivery contract
+
+Every batch is independently usable and follows this sequence:
+
+1. Inspect upstream GTK and daemon behavior.
+2. Record the existing protocol surface and browser-specific differences.
+3. Implement the smallest browser change.
+4. Add applicable Go, TypeScript, parser, reducer, component, fake-gateway,
+   Playwright, accessibility, reconnect, and responsive coverage.
+5. Run Go formatting, `go vet`, Go race tests, Vitest, TypeScript/Vite build,
+   desktop/mobile Playwright, container build/runtime smoke, and `git diff --check`.
+6. Run Luna multi-valued review, remediate defensible findings, and rerun affected
+   gates.
+7. Update `docs/UI_PARITY.md`.
+8. Commit and push the bounded batch.
+9. Require successful private `check` and `container` CI.
+10. Confirm a clean working tree before starting the next batch.
+
+Stop with evidence and required owner input if Luna is unavailable, the existing
+protocol cannot support the feature, manual hardware confirmation is required,
+or no defensible path remains.
+
+## Batch 1 — Bluetooth setup and status
+
+Deliver browser parity for the existing GTK Bluetooth setup/status experience:
+
+- host capability mode, reasons, and setup commands;
+- Classic, Low Energy, MAP, PBAP, and ANCS diagnostics;
+- supervision preference using existing `bt_set_enabled` and `bt_status` semantics;
+- iPhone permission solicitation using existing `bt_solicit` and
+  `bt_solicit_result` semantics;
+- strict pairing operation ownership for numeric comparison;
+- post-pair/unpair refresh through existing `bt_status` and `bt_list_devices`
+  commands;
+- capability-gated controls, unavailable states, timeout/failure recovery,
+  disconnect cleanup, accessible confirmation dialogs, and responsive behavior.
+
+No new Bluetooth-control capability or control-specific operation ID is required.
+The browser serializes these global controls locally and bounds pending state.
+
+Acceptance requires full local gates, a usable Luna `OK` verdict, a committed and
+pushed web batch, successful private CI, and a clean `tether-web` working tree.
+PR #211 remains unchanged at its existing committed head.
+
+## Batch 2 — Finish Devices
+
+- Select and drop multiple files.
+- Send sequentially through the existing browser-upload protocol.
+- Show current item, batch progress, failures, skipped items, and final tally.
+- Define cancellation and clear queues on disconnect/unmount.
+- Add capability-gated **Send Clipboard** using existing `clipboard_send` and
+  `clipboard_content` messages.
+- Show accurate compositor/clipboard availability guidance.
+
+This batch should not require C++ changes.
+
+## Batch 3 — Messages and shared foundations
+
+Implement thread discovery, search, conversation selection, history, drafts,
+compose/send, read state, permission guidance, lifecycle refresh, reconnect
+cleanup, responsive navigation, and accessibility. Introduce contact completion
+and message-formatting helpers only when these concrete flows need them.
+
+## Batch 4 — Notifications
+
+Implement list, refresh, source metadata, dismissal/removal, empty and unavailable
+states, ANCS/permission guidance, reconnect cleanup, responsive presentation, and
+accessibility. Keep live-hardware claims separate from simulated protocol proof.
+
+## Batch 5 — Calls
+
+Implement telephony availability, current/recent calls, dial, answer, hang up,
+audio routing, cellular/network state, withheld callers, failure handling,
+reconnect cleanup, and mobile-safe accessible controls.
+
+## Batch 6 — Contacts
+
+Implement search, grouped details, phone/email presentation, name resolution,
+message handoff, empty/unavailable states, and responsive navigation. Reuse the
+shared foundations introduced by Messages.
+
+## Batch 7 — Settings and preferences
+
+Classify every GTK setting as an existing daemon setting with a browser
+equivalent, a browser-local preference, or a desktop-only behavior with no useful
+browser equivalent. Implement or explicitly document Bluetooth, ANCS, popup,
+call, away-lock, retention, tray, and related preferences accordingly.
+
+## Batch 8 — Shared application parity
+
+Complete view switching, tab order, shortcuts, unread state, visibility-driven
+refresh, persisted browser preferences, browser notifications, global reconnect
+behavior, responsive navigation, and an application-wide accessibility pass.
+
+## Final prompt-to-artifact audit
+
+Before declaring parity complete:
+
+1. Restate every success criterion.
+2. Map every upstream GTK feature and explicit requirement to its daemon
+   command/event, browser implementation, tests, commit, and successful CI run.
+3. Inspect the actual files and evidence rather than relying on test or manifest
+   summaries alone.
+4. Verify all intentional platform differences are documented.
+5. Verify the gateway is still transport-only and no unapproved upstream change,
+   publication, or deployment occurred.
+6. Verify the repository is private and all relevant working trees are clean.
+7. Treat every uncertain or weakly verified item as incomplete.
+
+## Current execution boundary
+
+The current authorized scope ends after Batch 1 is reviewed, committed, pushed,
+verified by private CI, and clean. Do not begin Batch 2 in the same execution.
