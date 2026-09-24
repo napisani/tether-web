@@ -64,7 +64,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              listenAddress,
-		Handler:           gateway.NewHandler(bus, assets, gateway.Config{AllowedHosts: allowedHosts}),
+		Handler:           gateway.NewHandler(bus, assets, gateway.Config{AllowedHosts: allowedHosts, StagingDir: filepath.Dir(socketPath)}),
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,

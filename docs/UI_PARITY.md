@@ -133,17 +133,14 @@ code. They are decisions to review, not implicit omissions.
   provide such a path, so the web client reads selected files in bounded chunks.
   Browser batches enqueue multiple files but stage/send one at a time; oversized
   items count as failures, non-file drops count as skipped, and cancelling or
-  losing the daemon drops unstarted items. Once `file_upload_finish` has been
-  accepted, cancellation cannot recall that file; the client still waits for
-  its terminal result while preventing the rest of the batch from starting.
-  Folder drops are rejected where the browser exposes directory entries.
-  `tetherd` stages at most two 256 MiB uploads in its runtime directory, then
-  forwards each completed file through the existing `Client::send_file` path.
-  Upload commands and results carry an operation ID; unfinished uploads are
-  cancellable, while an accepted send keeps operation ownership through a
-  bounded browser wait and then blocks the remaining batch if the result is
-  unknown. It must not start another file until the daemon's terminal result
-  arrives. The Go gateway remains a transport-only JSON bridge.
+  losing the daemon drops unstarted items. The Go gateway stages at most two
+  256 MiB files on the shared disk-backed runtime volume and then calls the
+  daemon's existing `send_file` with a path and optional operation ID. Once
+  `file_upload_finish` forwards that command, cancellation cannot recall the
+  send; the client waits for the matching terminal event and stops the batch
+  if the result times out. The gateway cleans staged files on completion or
+  bounded expiry. Folder drops are rejected where the browser exposes
+  directory entries. Go owns only staging and transport, not file delivery.
 - **Send Clipboard** remains deferred. `clipboard_send` reads the *host desktop*
   selection, not the browser clipboard, but the current gateway has no user
   authentication and broadcasts plaintext clipboard events to every browser.

@@ -238,14 +238,6 @@ const forgetPeerResultEventSchema = open({
   forgotten: z.boolean(),
 });
 
-const fileUploadStartedEventSchema = open({
-  command: z.literal("file_upload_started"),
-  operation_id: z.string().min(1),
-  filename: optionalString,
-  success: z.boolean(),
-  message: optionalString,
-});
-
 const fileSendCompleteEventSchema = open({
   command: z.literal("file_send_complete"),
   operation_id: z.string().min(1),
@@ -318,7 +310,6 @@ export const daemonEventSchema = z.discriminatedUnion("command", [
   peerRejectedEventSchema,
   peerAcceptedEventSchema,
   forgetPeerResultEventSchema,
-  fileUploadStartedEventSchema,
   fileSendCompleteEventSchema,
   airPodsEventSchema,
   airPodsConnectResultEventSchema,

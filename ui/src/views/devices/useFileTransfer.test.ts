@@ -1,6 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FileUploadStartedEvent } from "../../protocol";
 import { daemonCommandSchema } from "../../protocolSchemas";
 import { maxUploadBytes, useFileTransfer } from "./useFileTransfer";
 
@@ -126,7 +125,7 @@ describe("browser file transfer", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps an ambiguous finish non-cancellable and ignores a late start acknowledgement", async () => {
+  it("keeps an ambiguous finish non-cancellable", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
@@ -142,14 +141,75 @@ describe("browser file transfer", () => {
       status: "sending",
       message: "The finish request was interrupted; waiting for tetherd’s result…",
     });
-    act(() => result.current.handleEvent({
-      command: "file_upload_started",
-      operation_id: operationId,
-      success: true,
-    }));
-    expect(result.current.state.status).toBe("sending");
     act(() => result.current.cancel());
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("releases the operation promptly when finish was definitely not forwarded", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockResolvedValueOnce(new Response("upload is incomplete", {
+        status: 409,
+        headers: { "X-Tether-Upload-Outcome": "not-forwarded" },
+      }))
+      .mockResolvedValue(new Response(null, { status: 202 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useFileTransfer());
+
+    await act(async () => result.current.sendFile(new File([], "empty.txt")));
+
+    expect(result.current.state).toMatchObject({ status: "error", message: "command failed: 409" });
+    expect(fetchMock.mock.calls.map(([, init]) => parseCommandBody(String(init?.body)).command)).toEqual([
+      "file_upload_start", "file_upload_finish", "file_upload_cancel",
+    ]);
+    await act(async () => result.current.sendFile(new File([], "next.txt")));
+    expect(result.current.state).toMatchObject({ filename: "next.txt", status: "sending" });
+  });
+
+  it("continues a batch after a definitely rejected finish", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID")
+      .mockReturnValueOnce(operationId)
+      .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockResolvedValueOnce(new Response(null, {
+        status: 409,
+        headers: { "X-Tether-Upload-Outcome": "not-forwarded" },
+      }))
+      .mockResolvedValue(new Response(null, { status: 202 })));
+    const { result } = renderHook(() => useFileTransfer());
+    act(() => result.current.sendFiles([new File([], "first.txt"), new File([], "second.txt")]));
+
+    await waitFor(() => expect(result.current.state).toMatchObject({ filename: "second.txt", status: "sending" }));
+    expect(result.current.batch).toMatchObject({ total: 2, completed: 1, failed: 1, active: true });
+    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body)).command)).toEqual([
+      "file_upload_start", "file_upload_finish", "file_upload_cancel", "file_upload_start", "file_upload_finish",
+    ]);
+  });
+
+  it("keeps a terminal result when it arrives before the finish HTTP response", async () => {
+    let resolveFinish: ((response: Response) => void) | undefined;
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 202 }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveFinish = resolve; }));
+
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useFileTransfer());
+    let transfer: Promise<void> | undefined;
+
+    act(() => { transfer = result.current.sendFile(new File([], "empty.txt")); });
+    await waitFor(() => expect(result.current.state.status).toBe("sending"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    act(() => result.current.handleEvent({
+      command: "file_send_complete", operation_id: operationId, success: true, message: "File sent.",
+    }));
+    resolveFinish?.(new Response(null, { status: 503 }));
+    await act(async () => transfer);
+
+    expect(result.current.state).toMatchObject({ status: "complete", message: "File sent." });
   });
 
   it("keeps waiting for an owned send result through an event-stream reconnect", async () => {
@@ -271,19 +331,14 @@ describe("browser file transfer", () => {
     expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "file_upload_start")).toHaveLength(1);
   });
 
-  it("stops an upload after a daemon rejection", async () => {
+  it("stops an upload when gateway staging rejects it", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 429 }))
+      .mockResolvedValue(new Response(null, { status: 202 })));
     const { result } = renderHook(() => useFileTransfer());
     await act(async () => result.current.sendFile(new File(["ok"], "ok.txt")));
 
-    const event: FileUploadStartedEvent = {
-      command: "file_upload_started",
-      operation_id: operationId,
-      success: false,
-      message: "Too many uploads.",
-    };
-
-    act(() => result.current.handleEvent(event));
-
-    expect(result.current.state).toMatchObject({ status: "error", message: "Too many uploads." });
+    expect(result.current.state).toMatchObject({ status: "error", message: "command failed: 429" });
+    expect(fetch).toHaveBeenCalledTimes(2); // start and best-effort cancel
   });
 });

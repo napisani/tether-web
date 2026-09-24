@@ -15,7 +15,7 @@ var (
 	errCommandRequired  = errors.New("command is required")
 )
 
-func registerCommandHandler(mux *http.ServeMux, bus Bus) {
+func registerCommandHandler(mux *http.ServeMux, bus Bus, uploads *uploadStore) {
 	mux.HandleFunc(commandsRoute, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -27,6 +27,21 @@ func registerCommandHandler(mux *http.ServeMux, bus Bus) {
 		command, err := decodeCommand(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var envelope struct {
+			Command string `json:"command"`
+		}
+		_ = json.Unmarshal(command, &envelope)
+		if status, err := uploads.handle(r.Context(), command, envelope.Command); status != 0 {
+			if _, notForwarded := err.(uploadNotForwardedError); notForwarded {
+				w.Header().Set("X-Tether-Upload-Outcome", "not-forwarded")
+			}
+			if err != nil {
+				http.Error(w, err.Error(), status)
+			} else {
+				w.WriteHeader(status)
+			}
 			return
 		}
 		if err := bus.Send(r.Context(), command); err != nil {

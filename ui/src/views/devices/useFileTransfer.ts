@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { sendDaemonCommand } from "../../daemon/DaemonClient";
+import { DaemonCommandRejectedError, sendDaemonCommand } from "../../daemon/DaemonClient";
 import type { DaemonEvent } from "../../protocol";
 
 const chunkBytes = 48 * 1024;
@@ -7,6 +7,11 @@ const chunkBytes = 48 * 1024;
 const sendResultTimeoutMs = 60_000;
 
 export const maxUploadBytes = 256 * 1024 * 1024;
+
+function cancelStaging(operationId: string): void {
+  // Cancellation is best-effort: tetherd may already own the send.
+  void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId }).catch(() => {});
+}
 
 function batchSummary(sent: number, total: number, failed: number, skipped: number): string {
   const result = total ? `Sent ${sent} of ${total} ${total === 1 ? "file" : "files"}.` : "No files to send.";
@@ -112,20 +117,10 @@ export function useFileTransfer(): FileTransferActions {
   }, []);
 
   const handleEvent = useCallback((event: DaemonEvent) => {
-    if (event.command !== "file_upload_started" && event.command !== "file_send_complete") return;
-
-    if (!event.operation_id || event.operation_id !== operationRef.current) return;
+    if (event.command !== "file_send_complete" || event.operation_id !== operationRef.current) return;
 
     if (!event.success) {
       fail(event.operation_id, event.message || "The file could not be sent.");
-
-      return;
-    }
-
-    if (event.command === "file_upload_started") {
-      setState((current) => current.operationId === event.operation_id && current.status === "uploading"
-        ? { ...current, message: undefined }
-        : current);
 
       return;
     }
@@ -152,7 +147,7 @@ export function useFileTransfer(): FileTransferActions {
     setState((current) => current.operationId === operationId
       ? { ...current, status: "cancelled", message: "File transfer cancelled." }
       : current);
-    void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
+    cancelStaging(operationId);
     finishItem(operationId, false);
   }, []);
 
@@ -216,9 +211,9 @@ export function useFileTransfer(): FileTransferActions {
       }, sendResultTimeoutMs);
       await sendDaemonCommand({ command: "file_upload_finish", operation_id: operationId });
     } catch (error) {
-      if (stoppedOperations.current.has(operationId)) return;
+      if (stoppedOperations.current.has(operationId) || operationRef.current !== operationId) return;
 
-      if (!cancellableOperations.current.has(operationId)) {
+      if (!cancellableOperations.current.has(operationId) && !(error instanceof DaemonCommandRejectedError)) {
         setState((current) => current.operationId === operationId
           ? { ...current, message: "The finish request was interrupted; waiting for tetherd’s result…" }
           : current);
@@ -228,7 +223,7 @@ export function useFileTransfer(): FileTransferActions {
 
       const message = error instanceof Error ? error.message : "The file upload failed.";
       fail(operationId, message);
-      void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
+      cancelStaging(operationId);
     }
   }, [fail]);
 
@@ -303,7 +298,7 @@ export function useFileTransfer(): FileTransferActions {
     setState((current) => current.operationId === operationId
       ? { ...current, status: "error", message: "The connection to tetherd was lost." }
       : current);
-    void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
+    cancelStaging(operationId);
     finishItem(operationId, false);
   }, []);
 
@@ -314,7 +309,7 @@ export function useFileTransfer(): FileTransferActions {
       stoppedOperations.current.add(operationId);
       cancellableOperations.current.delete(operationId);
       operationRef.current = undefined;
-      void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
+      cancelStaging(operationId);
     }
 
     queueRef.current = [];

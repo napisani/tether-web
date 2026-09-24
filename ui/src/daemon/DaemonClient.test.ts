@@ -93,11 +93,6 @@ describe("parseDaemonEvent", () => {
   it("rejects malformed file-transfer result events", () => {
     expect(parseDaemonEvent(JSON.stringify({ command: "file_send_complete", success: true }))).toBeUndefined();
     expect(parseDaemonEvent(JSON.stringify({
-      command: "file_upload_started",
-      operation_id: "upload-1",
-      success: "yes",
-    }))).toBeUndefined();
-    expect(parseDaemonEvent(JSON.stringify({
       command: "file_send_complete",
       operation_id: "upload-1",
       success: true,

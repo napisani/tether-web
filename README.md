@@ -24,7 +24,7 @@ This is not yet a complete replacement for Tether's GTK client. Messages, notifi
 
 ## Requirements
 
-- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and the chunked local file-upload protocol additions.
+- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and optional `operation_id` correlation on `send_file`.
 - Read/write access to the `tetherd` Unix socket.
 - Node.js 24 and Go 1.24 to build from source.
 
@@ -68,7 +68,7 @@ docker run --rm \
   tether-web
 ```
 
-In Kubernetes, run `tether-web` as a sidecar beside `tetherd` and mount the same runtime volume into both containers.
+In Kubernetes, run `tether-web` as a sidecar beside `tetherd` and mount the same disk-backed runtime volume into both containers. The gateway stages at most two 256 MiB files in private directories beside the Unix socket, then asks the daemon to `send_file` by path; never mount `/data` or `/downloads` into the web container. Give the shared volume at least 1 GiB and keep both containers under the same non-root UID. The gateway removes staged files on matching terminal results or after a bounded timeout.
 
 ## Configuration
 

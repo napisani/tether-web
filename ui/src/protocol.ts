@@ -248,14 +248,6 @@ export type PeerLifecycleEvent =
   | PeerAcceptedEvent
   | ForgetPeerResultEvent;
 
-export interface FileUploadStartedEvent extends DaemonEventBase {
-  command: "file_upload_started";
-  operation_id: string;
-  filename?: string;
-  success: boolean;
-  message?: string;
-}
-
 export interface FileSendCompleteEvent extends DaemonEventBase {
   command: "file_send_complete";
   operation_id: string;
@@ -284,7 +276,6 @@ export type DaemonEvent =
   | DiscoveryResultEvent
   | MdnsStatusEvent
   | PeerLifecycleEvent
-  | FileUploadStartedEvent
   | FileSendCompleteEvent
   | GatewayStatusEvent;
 
@@ -351,6 +342,8 @@ export interface ForgetPeerCommand extends JsonRecord {
   fingerprint: string;
 }
 
+// Gateway transport commands: stage bytes on the shared runtime volume, then
+// forward one daemon send_file with the same operation ID.
 export interface FileUploadStartCommand extends JsonRecord {
   command: "file_upload_start";
   operation_id: string;

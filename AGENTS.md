@@ -85,7 +85,7 @@ For each parity feature:
 
 Any necessary upstream change must be the smallest backward-compatible protocol addition, live in a separate Tether branch and pull request, preserve GTK behavior, and avoid unrelated daemon or GTK refactoring. Do not modify GTK merely to make the web client easier to implement. Shared upstream bugs discovered during parity work should be verified and handled separately from the web feature unless they directly block it.
 
-Examples of justified protocol additions are browser file staging, because a browser cannot supply a daemon-host filesystem path, and operation ownership for external numeric-comparison pairing, where accepting the wrong client's confirmation would be unsafe. Convenience-only correlation for globally observable status is not enough by itself.
+The gateway stages browser files on a bounded shared volume and invokes the existing `send_file` command with a daemon-visible path. Its optional operation ID lets the browser correlate the terminal result. Operation ownership for external numeric-comparison pairing is a separate justified protocol addition, because accepting the wrong client's confirmation would be unsafe. Convenience-only correlation for globally observable status is not enough by itself.
 
 ## Go gateway boundaries
 
@@ -93,7 +93,8 @@ The Go gateway is transport infrastructure, not a third domain client. Keep it l
 
 - serving embedded assets;
 - enforcing HTTP security and resource limits;
-- forwarding commands to `tetherd`;
+- staging bounded browser upload bytes in a shared runtime volume and forwarding `send_file` to `tetherd`;
+- forwarding other commands to `tetherd`;
 - publishing ordered daemon events and snapshots to browsers.
 
 Preserve the `gateway.Bus` interface between HTTP handlers and the daemon client. Do not add feature-specific HTTP routes or duplicate daemon behavior in Go.

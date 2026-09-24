@@ -22,6 +22,7 @@ type fakeBus struct {
 	history      []gateway.Event
 	nextEventID  uint64
 	subscribeErr error
+	sendErr      error
 	subscribers  map[chan gateway.Event]struct{}
 }
 
@@ -29,7 +30,7 @@ func (b *fakeBus) Send(_ context.Context, command json.RawMessage) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.commands = append(b.commands, append(json.RawMessage(nil), command...))
-	return nil
+	return b.sendErr
 }
 
 func (b *fakeBus) Subscribe(afterID *uint64) (gateway.Subscription, error) {

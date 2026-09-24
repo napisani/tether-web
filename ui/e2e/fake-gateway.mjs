@@ -63,7 +63,7 @@ const durable = {
   protocol_info: {
     command: "protocol_info",
     version: 1,
-    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files.upload", "peers"],
+    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers"],
   },
   bt_status: baseBluetoothStatus(),
   bt_devices: { command: "bt_devices", devices: [] },
@@ -253,7 +253,11 @@ function writeSnapshot(response) {
 }
 
 function handleCommand(command) {
-  commandHandlers[command.command]?.(command);
+  return commandHandlers[command.command]?.(command);
+}
+
+function respondToCommand(response, command) {
+  response.writeHead(handleCommand(command) === false ? 409 : 202).end();
 }
 
 const commandHandlers = {
@@ -279,7 +283,8 @@ const commandHandlers = {
   file_upload_cancel: (command) => {
     const upload = uploads.get(command.operation_id);
 
-    if (upload && !upload.sending) uploads.delete(command.operation_id);
+    if (!upload || upload.sending) return false;
+    uploads.delete(command.operation_id);
   },
   bt_scan: () => {
     later(() => publish({ command: "bt_devices", devices: [phone] }), 20);
@@ -340,7 +345,8 @@ function handleUploadStart(command) {
     !uploads.has(command.operation_id) && uploads.size < 2;
 
   if (success) uploads.set(command.operation_id, { filename: command.filename, size: command.size, bytes: 0, nextChunk: 0, sending: false });
-  publish({ command: "file_upload_started", operation_id: command.operation_id, filename: command.filename, success, message: success ? undefined : "Upload rejected." });
+
+  return success;
 }
 
 function handleUploadChunk(command) {
@@ -356,23 +362,25 @@ function handleUploadChunk(command) {
     upload.bytes += bytes;
     upload.nextChunk += 1;
 
-    return;
+    return true;
   }
 
-  uploads.delete(command.operation_id);
-  publish({ command: "file_send_complete", operation_id: command.operation_id, success: false, message: "Upload chunk rejected." });
+  return false;
 }
 
 function handleUploadFinish(command) {
   const upload = uploads.get(command.operation_id);
   const success = Boolean(upload && !upload.sending && upload.bytes === upload.size);
 
-  if (success) upload.sending = true;
-  else uploads.delete(command.operation_id);
+  if (!success) return false;
+
+  upload.sending = true;
   later(() => {
-    if (success) uploads.delete(command.operation_id);
-    publish({ command: "file_send_complete", operation_id: command.operation_id, filename: upload?.filename, success, message: success ? "File sent." : "The upload was incomplete." });
+    uploads.delete(command.operation_id);
+    publish({ command: "file_send_complete", operation_id: command.operation_id, filename: upload.filename, success: true, message: "File sent." });
   }, 20);
+
+  return true;
 }
 
 function finishPairing(command) {
@@ -458,8 +466,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    handleCommand(command);
-    response.writeHead(202).end();
+    respondToCommand(response, command);
 
     return;
   }
