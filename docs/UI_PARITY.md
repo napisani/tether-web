@@ -60,9 +60,9 @@ its ownership should still make the GTK/Web relationship obvious.
 
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
-| App shell | Partial | Shared header, GTK tab order, route status footer | View switching, shortcuts, settings entry, shared unread state |
+| App shell | Partial | Shared header, Devices/Messages view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
 | Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
-| Messages | Not started | Navigation placeholder | Threads, search, conversation, drafts, compose/send, read state, permission guidance |
+| Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, reconnect cleanup, responsive navigation | Physical-phone MAP validation, app-wide unread state |
 | Notifications | Not started | Navigation placeholder | Notification list, refresh, removal, dismissal, connection guidance |
 | Calls | Not started | Navigation placeholder | Availability, call list, dial, answer, hang up, audio routing, network state |
 | Contacts | Not started | Navigation placeholder | Search, grouped contact details, message handoff |
@@ -80,9 +80,11 @@ user-visible capability.
    permission recovery and multi-file queueing are implemented. Send Clipboard
    is deferred until app-wide security and completion semantics are resolved;
    complete physical-phone validation without replacing the existing bond.
-3. **Add Messages.** Mirror thread visibility refresh, conversation selection,
-   drafts, compose/send state, errors, and disconnect cleanup. Add shared contact
-   completion and message formatting as those dependencies appear.
+3. **Add Messages.** Thread visibility refresh, selection, drafts, compose/send
+   state, errors, and disconnect cleanup are implemented locally. Confirm the
+   separate optional `bt_send_message` operation-ID change upstream before
+   shipping: the web never treats an uncorrelated global send result as its own.
+   Complete physical-phone validation and app-wide unread state separately.
 4. **Add Notifications and Calls.** Keep their visibility-driven refresh and
    daemon capability behavior aligned with GTK.
 5. **Add Contacts.** Preserve search and the handoff that opens a message thread.
@@ -141,6 +143,13 @@ code. They are decisions to review, not implicit omissions.
   if the result times out. The gateway cleans staged files on completion or
   bounded expiry. Folder drops are rejected where the browser exposes
   directory entries. Go owns only staging and transport, not file delivery.
+- Message-send results are globally broadcast by older daemons. The web sends
+  an optional operation ID and only clears a draft for a matching `bt_send_result`;
+  missing or legacy results leave the draft intact and eventually show an
+  uncertain-outcome warning. A manual new-message address is submitted in the
+  daemon's documented `tel:`/`email:` namespace, with final validation owned by
+  `tetherd`; unlike GTK, the browser does not prevalidate or normalize it. The
+  Messages view requires the optional message-send ID at the stacked core tip.
 - **Send Clipboard** remains deferred. `clipboard_send` reads the *host desktop*
   selection, not the browser clipboard, but the current gateway has no user
   authentication and broadcasts plaintext clipboard events to every browser.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import { sendDaemonCommand, useDaemonClient } from "../daemon/DaemonClient";
 import type { DaemonEvent } from "../protocol";
 import { DevicesView } from "../views/devices/DevicesView";
@@ -6,24 +6,35 @@ import { useAirPodsCommands } from "../views/devices/useAirPodsCommands";
 import { useBluetoothCommands } from "../views/devices/useBluetoothCommands";
 import { usePeerCommands } from "../views/devices/usePeerCommands";
 import { useFileTransfer } from "../views/devices/useFileTransfer";
+import { MessagesView } from "../views/messages/MessagesView";
+import { useMessages } from "../views/messages/useMessages";
 import { AppShell } from "./AppShell";
 import { initialAppState, reduceAppState } from "./appState";
 
 export function TetherApp() {
   const [state, dispatch] = useReducer(reduceAppState, initialAppState);
+  const [route, setRoute] = useState<"devices" | "messages">("devices");
   const fileTransfer = useFileTransfer();
+  const messages = useMessages(route === "messages");
 
   const onConnectionChange = useCallback(
     (connected: boolean) => {
-      if (!connected) fileTransfer.handleDisconnect();
+      if (!connected) {
+        fileTransfer.handleDisconnect();
+        messages.handleDisconnect();
+      }
+
       dispatch({ type: "daemon-connected", connected });
     },
-    [fileTransfer.handleDisconnect],
+    [fileTransfer.handleDisconnect, messages.handleDisconnect],
   );
 
   const onEvent = useCallback(
     (event: DaemonEvent) => {
       fileTransfer.handleEvent(event);
+      messages.handleEvent(event);
+
+      if (event.command === "gateway_status" && !event.daemon_connected) messages.handleDisconnect();
       dispatch({ type: "daemon-event", event });
 
       if (event.command === "bt_pair_result" || event.command === "bt_unpair_result") {
@@ -33,7 +44,7 @@ export function TetherApp() {
         ]);
       }
     },
-    [fileTransfer.handleEvent],
+    [fileTransfer.handleEvent, messages.handleEvent, messages.handleDisconnect],
   );
 
   useDaemonClient({ onConnectionChange, onEvent });
@@ -56,6 +67,8 @@ export function TetherApp() {
 
   return (
     <AppShell
+      route={route}
+      onNavigate={setRoute}
       daemonConnected={state.daemon.connected}
       bluetoothAvailable={bluetoothAvailable}
       wifiConnected={wifiConnected}
@@ -63,7 +76,8 @@ export function TetherApp() {
       phoneConnected={phoneConnected}
       version={state.devices.bluetooth?.version}
     >
-      <DevicesView
+      {route === "messages" ? <MessagesView messages={messages} daemonConnected={state.daemon.connected}
+        available={state.daemon.protocol?.capabilities.includes("messages") === true} /> : <DevicesView
         daemon={state.daemon}
         state={state.devices}
         onScan={() => {
@@ -80,7 +94,7 @@ export function TetherApp() {
         airpodsActions={airpodsActions}
         peerActions={peerActions}
         fileTransfer={fileTransfer}
-      />
+      />}
     </AppShell>
   );
 }

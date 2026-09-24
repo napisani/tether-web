@@ -3,6 +3,8 @@ import "./AppShell.css";
 
 export function AppShell({
   children,
+  route,
+  onNavigate,
   daemonConnected,
   bluetoothAvailable,
   wifiConnected,
@@ -11,6 +13,8 @@ export function AppShell({
   version,
 }: {
   children: ReactNode;
+  route: "devices" | "messages";
+  onNavigate: (route: "devices" | "messages") => void;
   daemonConnected: boolean;
   bluetoothAvailable: boolean;
   wifiConnected: boolean;
@@ -20,7 +24,7 @@ export function AppShell({
 }) {
   return (
     <div className="app-shell">
-      <AppHeader connected={phoneConnected || wifiConnected} />
+      <AppHeader connected={phoneConnected || wifiConnected} route={route} onNavigate={onNavigate} />
       {children}
       <RouteStatusBar
         daemonConnected={daemonConnected}
@@ -34,7 +38,11 @@ export function AppShell({
   );
 }
 
-function AppHeader({ connected }: { connected: boolean }) {
+function AppHeader({ connected, route, onNavigate }: {
+  connected: boolean;
+  route: "devices" | "messages";
+  onNavigate: (route: "devices" | "messages") => void;
+}) {
   return (
     <header className="app-header">
       <div className="brand" aria-label="Tether">
@@ -42,8 +50,10 @@ function AppHeader({ connected }: { connected: boolean }) {
         <span>Tether</span>
       </div>
       <nav className="primary-nav" aria-label="Primary navigation">
-        <span className="nav-item active">Devices</span>
-        <span className="nav-item future" title="Available in a future web release">Messages</span>
+        <button type="button" className={`nav-item ${route === "devices" ? "active" : ""}`}
+          aria-current={route === "devices" ? "page" : undefined} onClick={() => onNavigate("devices")}>Devices</button>
+        <button type="button" className={`nav-item ${route === "messages" ? "active" : ""}`}
+          aria-current={route === "messages" ? "page" : undefined} onClick={() => onNavigate("messages")}>Messages</button>
         <span className="nav-item future" title="Available in a future web release">Notifications</span>
         <span className="nav-item future" title="Available in a future web release">Calls</span>
         <span className="nav-item future" title="Available in a future web release">Contacts</span>

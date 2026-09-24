@@ -8,7 +8,7 @@ A browser client for [Tether](https://github.com/zackb/tether), the Linux compan
 
 ## Current scope
 
-The first release provides the runtime scaffolding for a web client and the Devices view's guided Bluetooth flow:
+The web client provides the Devices view's guided Bluetooth flow:
 
 - discover a possible iPhone from its Apple Nearby advertisement;
 - compare and explicitly confirm the Bluetooth pairing code;
@@ -20,11 +20,11 @@ The first release provides the runtime scaffolding for a web client and the Devi
 - discover, approve, connect, and forget Tether peers over Wi-Fi; and
 - send files to a connected trusted peer from a file picker or drop zone.
 
-This is not yet a complete replacement for Tether's GTK client. Messages, notifications, calls, contacts, settings, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
+This branch also adds Messages: conversation search and history, drafts, contact suggestions, sending, and read-state handling. It requires a separate upstream change that echoes an optional message-send operation ID; uncorrelated results never clear a browser draft. This is not yet a complete replacement for Tether's GTK client. Notifications, calls, contacts, settings, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
 
 ## Requirements
 
-- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and optional `operation_id` correlation on `send_file`.
+- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and optional `operation_id` correlation on `send_file` and `bt_send_message`. Both correlations are present at the tip of the stacked core branch.
 - Read/write access to the `tetherd` Unix socket.
 - Node.js 24 and Go 1.24 to build from source.
 

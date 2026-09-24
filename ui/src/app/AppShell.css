@@ -51,6 +51,10 @@
 
 .nav-item {
   padding: 12px 22px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
   border-radius: 9px;
   color: var(--color-text-muted);
   font-weight: 600;

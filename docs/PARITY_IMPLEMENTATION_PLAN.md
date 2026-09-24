@@ -33,8 +33,11 @@ Two established exceptions illustrate the threshold:
 
 - external numeric-comparison pairing needs operation correlation so a
   conforming client only presents and answers the confirmation it initiated;
-- browsers cannot supply daemon-host paths to `send_file`, so bounded daemon-side
-  staging is required before reusing the existing send path.
+- browsers cannot supply daemon-host paths to `send_file`, so the Go gateway
+  stages bounded bytes on a shared, daemon-visible volume before invoking the
+  existing send path. An optional send result ID is reviewed separately;
+- message sends need an optional result ID to avoid mistaking another client's
+  global `bt_send_result` for this tab's confirmation.
 
 ## Batch delivery contract
 
@@ -148,7 +151,10 @@ Before declaring parity complete:
 
 ## Current execution boundary
 
-Batch 1 is deployed. Batch 2's multi-file queue is implemented locally. Send
-Clipboard is deferred pending a separately approved app-wide security design
-and a trustworthy completion signal. Remaining batches require separate
-authorization.
+Batch 1 is deployed. Batch 2's multi-file queue is on the web main branch;
+its migration to gateway staging is the unmerged parent of the Messages web
+branch. The homelab disk-backed staging volume remains uncommitted. Batch 3
+Messages is at the web stack tip and requires the separate, unmerged core stack
+with both optional file-send and message-send IDs. Send Clipboard is deferred
+pending app-wide security and trustworthy completion semantics. None of these
+pending changes authorizes deployment.

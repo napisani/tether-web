@@ -283,6 +283,47 @@ const airPodsModeResultEventSchema = open({
   message: optionalString,
 });
 
+const messageThreadSchema = open({
+  thread: z.string().min(1),
+  name: optionalString,
+  address: optionalString,
+  preview: optionalString,
+  timestamp: z.number().optional(),
+  unread: z.number().int().nonnegative().optional(),
+  group: optionalBoolean,
+  repliable: optionalBoolean,
+  reply_reason: optionalString,
+});
+
+const textMessageSchema = {
+  handle: z.string(),
+  thread: z.string().min(1),
+  body: z.string(),
+  timestamp: z.number(),
+  outgoing: z.boolean(),
+  read: z.boolean(),
+  folder: optionalString,
+};
+
+const threadListEventSchema = open({ command: z.literal("bt_threads"), threads: z.array(messageThreadSchema) });
+
+const messageListEventSchema = open({ command: z.literal("bt_messages"), thread: z.string().min(1), messages: z.array(open(textMessageSchema)) });
+
+const newMessageEventSchema = open({ command: z.literal("bt_message"), ...textMessageSchema });
+
+const messageSendResultEventSchema = open({
+  command: z.literal("bt_send_result"), operation_id: operationId,
+  thread: z.string().min(1), success: z.boolean(), message: optionalString,
+});
+
+const messageReadEventSchema = open({ command: z.literal("bt_message_read"), handles: z.array(z.string()),
+  read: z.boolean(), success: z.boolean(), message: optionalString });
+
+const contactListEventSchema = open({
+  command: z.literal("bt_contacts"), query: z.string(),
+  contacts: z.array(open({ name: z.string(), addresses: z.array(z.string().min(1)) })),
+});
+
 const gatewayStatusEventSchema = open({
   command: z.literal("gateway_status"),
   operation_id: operationId,
@@ -315,6 +356,12 @@ export const daemonEventSchema = z.discriminatedUnion("command", [
   airPodsConnectResultEventSchema,
   airPodsModeResultEventSchema,
   gatewayStatusEventSchema,
+  threadListEventSchema,
+  messageListEventSchema,
+  newMessageEventSchema,
+  messageSendResultEventSchema,
+  messageReadEventSchema,
+  contactListEventSchema,
 ]);
 
 export const daemonCommandSchema = z.discriminatedUnion("command", [
@@ -339,6 +386,11 @@ export const daemonCommandSchema = z.discriminatedUnion("command", [
   open({ command: z.literal("file_upload_chunk"), operation_id: z.string().min(1), chunk_index: z.number().int().nonnegative(), data: z.string().min(1) }),
   open({ command: z.literal("file_upload_finish"), operation_id: z.string().min(1) }),
   open({ command: z.literal("file_upload_cancel"), operation_id: z.string().min(1) }),
+  open({ command: z.literal("bt_list_threads") }),
+  open({ command: z.literal("bt_list_messages"), thread: z.string().min(1) }),
+  open({ command: z.literal("bt_list_contacts"), query: z.string(), limit: z.number().int().positive().optional() }),
+  open({ command: z.literal("bt_mark_read"), handles: z.array(z.string().min(1)).min(1), read: z.literal(true) }),
+  open({ command: z.literal("bt_send_message"), thread: z.string().min(1), body: z.string().min(1), operation_id: z.string().min(1) }),
 ]);
 
 export const commandBodySchema = daemonCommandSchema;

@@ -4,6 +4,19 @@ test.beforeEach(async ({ request }) => {
   await request.post("/__test/reset", { data: {} });
 });
 
+test("reads and replies to an iPhone conversation", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withMessages: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Messages" }).click();
+  await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
+  await page.getByRole("button", { name: /Ada See you soon/ }).click();
+  await expect(page.getByLabel("Received: See you soon")).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("On my way");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByLabel("Sent: On my way")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
+});
+
 test("pairs an iPhone through the guided browser flow", async ({ page }) => {
   await page.goto("/");
 

@@ -22,6 +22,10 @@ let discoverablePeers = [];
 // so uploads are process-global here rather than owned by individual HTTP clients.
 const uploads = new Map();
 
+let messageThreads = [];
+
+let messageHistory = [];
+
 const maxUploadBytes = 256 * 1024 * 1024;
 
 const maxChunkBytes = 48 * 1024;
@@ -146,7 +150,7 @@ function setPhonePaired(paired) {
   durable.bt_connection_changed = paired ? connectedConnection() : disconnectedConnection();
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false } = {}) {
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
@@ -154,8 +158,13 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   failNextCommand = undefined;
   discoverablePeers = discoverPeer || withPeer ? [peer] : [];
   uploads.clear();
+  messageThreads = withMessages ? [{ thread: "tel:+15550102", name: "Ada", address: "+15550102", preview: "See you soon", timestamp: 1_700_000_000, unread: 1, repliable: true }] : [];
+  messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
+  durable.protocol_info.capabilities = withMessages
+    ? ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "messages", "peers"]
+    : ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers"];
   durable.bt_status = baseBluetoothStatus();
-  setPhonePaired(paired);
+  setPhonePaired(paired || withMessages);
   durable.state_snapshot = emptyStateSnapshot();
 
   if (bluetoothSetup && paired) {
@@ -303,6 +312,25 @@ const commandHandlers = {
     publish(durable.bt_status);
   },
   bt_solicit: () => later(() => publish({ command: "bt_solicit_result", success: true, message: "Asked the iPhone to re-offer notification access." }), 20),
+  bt_list_threads: () => later(() => publish({ command: "bt_threads", threads: messageThreads }), 10),
+  bt_list_messages: (command) => later(() => publish({ command: "bt_messages", thread: command.thread, messages: messageHistory.filter((item) => item.thread === command.thread) }), 10),
+  bt_list_contacts: (command) => later(() => publish({ command: "bt_contacts", query: command.query,
+    contacts: [{ name: "Ada", addresses: ["tel:+15550102"] }] }), 10),
+  bt_mark_read: (command) => later(() => {
+    messageHistory = messageHistory.map((item) => command.handles.includes(item.handle) ? { ...item, read: true } : item);
+    messageThreads = messageThreads.map((item) => ({ ...item, unread: 0 }));
+    publish({ command: "bt_message_read", handles: command.handles, read: command.read, success: true });
+  }, 10),
+  bt_send_message: (command) => later(() => {
+    const message = { command: "bt_message", handle: `sent-${messageHistory.length}`, thread: command.thread,
+      body: command.body, timestamp: Math.floor(Date.now() / 1000), outgoing: true, read: true };
+
+    messageHistory.push(message);
+    messageThreads = messageThreads.map((item) => item.thread === command.thread
+      ? { ...item, preview: command.body, timestamp: message.timestamp } : item);
+    publish(message);
+    publish({ command: "bt_send_result", thread: command.thread, operation_id: command.operation_id, success: true });
+  }, 20),
   bt_airpods_connect: (command) => later(() => {
     airpods.connected = command.connect;
     durable.bt_devices = { command: "bt_devices", devices: [airpods] };

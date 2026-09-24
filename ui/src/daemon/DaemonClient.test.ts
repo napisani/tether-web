@@ -100,6 +100,14 @@ describe("parseDaemonEvent", () => {
     }))).toMatchObject({ command: "file_send_complete", operation_id: "upload-1" });
   });
 
+  it("validates Messages payloads before rendering them", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_threads", threads: [{ name: "Missing key" }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_messages", thread: "tel:+15550102", messages: [{ body: "Hi" }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_send_result", thread: "tel:+15550102", success: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_send_result", thread: "tel:+15550102", success: true, operation_id: "send-1" })))
+      .toMatchObject({ command: "bt_send_result", operation_id: "send-1" });
+  });
+
   it("accepts complete peer lifecycle events, including pre-TLS rejection", () => {
     expect(parseDaemonEvent(JSON.stringify({
       command: "pair_accepted",

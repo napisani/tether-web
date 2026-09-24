@@ -256,6 +256,69 @@ export interface FileSendCompleteEvent extends DaemonEventBase {
   message?: string;
 }
 
+export interface MessageThread extends JsonRecord {
+  thread: string;
+  name?: string;
+  address?: string;
+  preview?: string;
+  timestamp?: number;
+  unread?: number;
+  group?: boolean;
+  repliable?: boolean;
+  reply_reason?: string;
+}
+
+export interface ThreadListEvent extends DaemonEventBase {
+  command: "bt_threads";
+  threads: MessageThread[];
+}
+
+export interface TextMessage extends JsonRecord {
+  handle: string;
+  thread: string;
+  body: string;
+  timestamp: number;
+  outgoing: boolean;
+  read: boolean;
+  folder?: string;
+}
+
+export interface MessageListEvent extends DaemonEventBase {
+  command: "bt_messages";
+  thread: string;
+  messages: TextMessage[];
+}
+
+export interface NewMessageEvent extends DaemonEventBase, TextMessage {
+  command: "bt_message";
+}
+
+export interface MessageSendResultEvent extends DaemonEventBase {
+  command: "bt_send_result";
+  thread: string;
+  success: boolean;
+  message?: string;
+}
+
+export interface MessageReadEvent extends DaemonEventBase {
+  command: "bt_message_read";
+  handles: string[];
+  read: boolean;
+  success: boolean;
+  message?: string;
+}
+
+export interface ContactSuggestion extends JsonRecord {
+  name: string;
+  addresses: string[];
+}
+
+export interface ContactListEvent extends DaemonEventBase {
+  command: "bt_contacts";
+  query: string;
+  contacts: ContactSuggestion[];
+}
+
 export interface GatewayStatusEvent extends DaemonEventBase {
   command: "gateway_status";
   daemon_connected: boolean;
@@ -277,6 +340,12 @@ export type DaemonEvent =
   | MdnsStatusEvent
   | PeerLifecycleEvent
   | FileSendCompleteEvent
+  | ThreadListEvent
+  | MessageListEvent
+  | NewMessageEvent
+  | MessageSendResultEvent
+  | MessageReadEvent
+  | ContactListEvent
   | GatewayStatusEvent;
 
 export interface BluetoothScanCommand extends JsonRecord {
@@ -394,6 +463,34 @@ export interface AirPodsConnectCommand extends JsonRecord {
   connect: boolean;
 }
 
+export interface ListThreadsCommand extends JsonRecord {
+  command: "bt_list_threads";
+}
+
+export interface ListMessagesCommand extends JsonRecord {
+  command: "bt_list_messages";
+  thread: string;
+}
+
+export interface ListContactsCommand extends JsonRecord {
+  command: "bt_list_contacts";
+  query: string;
+  limit?: number;
+}
+
+export interface MarkMessagesReadCommand extends JsonRecord {
+  command: "bt_mark_read";
+  handles: string[];
+  read: true;
+}
+
+export interface SendMessageCommand extends JsonRecord {
+  command: "bt_send_message";
+  thread: string;
+  body: string;
+  operation_id: string;
+}
+
 export type DaemonCommand =
   | BluetoothScanCommand
   | BluetoothStatusCommand
@@ -415,7 +512,12 @@ export type DaemonCommand =
   | FileUploadStartCommand
   | FileUploadChunkCommand
   | FileUploadFinishCommand
-  | FileUploadCancelCommand;
+  | FileUploadCancelCommand
+  | ListThreadsCommand
+  | ListMessagesCommand
+  | ListContactsCommand
+  | MarkMessagesReadCommand
+  | SendMessageCommand;
 
 export interface GatewayState {
   daemon_connected: boolean;
