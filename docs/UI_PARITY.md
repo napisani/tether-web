@@ -60,14 +60,14 @@ its ownership should still make the GTK/Web relationship obvious.
 
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
-| App shell | Partial | Shared header, Devices/Messages view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
+| App shell | Partial | Shared header, Devices/Messages/Notifications view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
 | Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
-| Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, reconnect cleanup, responsive navigation | Physical-phone MAP validation, app-wide unread state |
-| Notifications | Not started | Navigation placeholder | Notification list, refresh, removal, dismissal, connection guidance |
+| Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, reconnect cleanup, responsive navigation; user-validated on a physical phone | Broader device/permission matrix, app-wide unread state |
+| Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation | Physical-phone ANCS validation, browser OS notification policy |
 | Calls | Not started | Navigation placeholder | Availability, call list, dial, answer, hang up, audio routing, network state |
 | Contacts | Not started | Navigation placeholder | Search, grouped contact details, message handoff |
 | Settings | Not started | None | Bluetooth, ANCS, popup, call, away-lock, retention, and tray preferences where applicable |
-| Shared helpers | Not started | None | Contact completion, message formatting, persisted preferences |
+| Shared helpers | Partial | Message formatting for the Messages view | App-wide contact completion, persisted preferences |
 
 Update this table whenever either client gains or intentionally changes a
 user-visible capability.
@@ -84,9 +84,10 @@ user-visible capability.
    state, errors, and disconnect cleanup are implemented locally. Confirm the
    separate optional `bt_send_message` operation-ID change upstream before
    shipping: the web never treats an uncorrelated global send result as its own.
-   Complete physical-phone validation and app-wide unread state separately.
-4. **Add Notifications and Calls.** Keep their visibility-driven refresh and
-   daemon capability behavior aligned with GTK.
+   Extend device/permission coverage and app-wide unread state separately.
+4. **Add Notifications and Calls.** Notifications now mirror GTK's visibility-
+   driven refresh and daemon capability behavior locally; Calls remain. Validate
+   notification content and dismissal on a physical iPhone before rollout.
 5. **Add Contacts.** Preserve search and the handoff that opens a message thread.
 6. **Add Settings and preferences.** Share terminology and daemon settings while
    adapting desktop-only controls to browser equivalents or recording why no
@@ -150,6 +151,14 @@ code. They are decisions to review, not implicit omissions.
   daemon's documented `tel:`/`email:` namespace, with final validation owned by
   `tetherd`; unlike GTK, the browser does not prevalidate or normalize it. The
   Messages view requires the optional message-send ID at the stacked core tip.
+- Notifications use the daemon's app name/ID rather than GTK's local icon-theme
+  lookup; the browser shows a source initial instead of inventing an iPhone app
+  icon. ANCS offers no deep link. The view does not request browser OS popup
+  permission or persist sensitive content; it clears rows on disconnect.
+  A dismissal result identifies a notification UID but not the requesting tab,
+  so the browser disables the matching row while the result is pending and
+  leaves uncertain outcomes disabled until the daemon removes the notification
+  or the connection is reset. The daemon's `ancs_reason` is shown verbatim.
 - **Send Clipboard** remains deferred. `clipboard_send` reads the *host desktop*
   selection, not the browser clipboard, but the current gateway has no user
   authentication and broadcasts plaintext clipboard events to every browser.

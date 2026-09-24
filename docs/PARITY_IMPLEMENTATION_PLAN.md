@@ -151,10 +151,8 @@ Before declaring parity complete:
 
 ## Current execution boundary
 
-Batch 1 is deployed. Batch 2's multi-file queue is on the web main branch;
-its migration to gateway staging is the unmerged parent of the Messages web
-branch. The homelab disk-backed staging volume remains uncommitted. Batch 3
-Messages is at the web stack tip and requires the separate, unmerged core stack
-with both optional file-send and message-send IDs. Send Clipboard is deferred
-pending app-wide security and trustworthy completion semantics. None of these
-pending changes authorizes deployment.
+Batches 1–3 are deployed to the homelab from pinned core and web stack tips;
+Messages passed user-led phone testing. Batch 4 Notifications is being developed
+locally above the Messages web branch and is not deployed. Send Clipboard is
+deferred pending app-wide security and trustworthy completion semantics. Each
+new deployment needs separate approval.

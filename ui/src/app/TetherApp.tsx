@@ -8,33 +8,43 @@ import { usePeerCommands } from "../views/devices/usePeerCommands";
 import { useFileTransfer } from "../views/devices/useFileTransfer";
 import { MessagesView } from "../views/messages/MessagesView";
 import { useMessages } from "../views/messages/useMessages";
-import { AppShell } from "./AppShell";
+import { NotificationsView } from "../views/notifications/NotificationsView";
+import { useNotifications } from "../views/notifications/useNotifications";
+import { AppShell, type AppRoute } from "./AppShell";
 import { initialAppState, reduceAppState } from "./appState";
 
 export function TetherApp() {
   const [state, dispatch] = useReducer(reduceAppState, initialAppState);
-  const [route, setRoute] = useState<"devices" | "messages">("devices");
+  const [route, setRoute] = useState<AppRoute>("devices");
   const fileTransfer = useFileTransfer();
   const messages = useMessages(route === "messages");
+  const notificationsAvailable = state.daemon.protocol?.capabilities.includes("notifications") === true;
+  const notifications = useNotifications(route === "notifications" && notificationsAvailable);
 
   const onConnectionChange = useCallback(
     (connected: boolean) => {
       if (!connected) {
         fileTransfer.handleDisconnect();
         messages.handleDisconnect();
+        notifications.handleDisconnect();
       }
 
       dispatch({ type: "daemon-connected", connected });
     },
-    [fileTransfer.handleDisconnect, messages.handleDisconnect],
+    [fileTransfer.handleDisconnect, messages.handleDisconnect, notifications.handleDisconnect],
   );
 
   const onEvent = useCallback(
     (event: DaemonEvent) => {
       fileTransfer.handleEvent(event);
       messages.handleEvent(event);
+      notifications.handleEvent(event);
 
-      if (event.command === "gateway_status" && !event.daemon_connected) messages.handleDisconnect();
+      if (event.command === "gateway_status" && !event.daemon_connected) {
+        messages.handleDisconnect();
+        notifications.handleDisconnect();
+      }
+
       dispatch({ type: "daemon-event", event });
 
       if (event.command === "bt_pair_result" || event.command === "bt_unpair_result") {
@@ -44,7 +54,8 @@ export function TetherApp() {
         ]);
       }
     },
-    [fileTransfer.handleEvent, messages.handleEvent, messages.handleDisconnect],
+    [fileTransfer.handleEvent, messages.handleEvent, messages.handleDisconnect,
+      notifications.handleEvent, notifications.handleDisconnect],
   );
 
   useDaemonClient({ onConnectionChange, onEvent });
@@ -76,8 +87,12 @@ export function TetherApp() {
       phoneConnected={phoneConnected}
       version={state.devices.bluetooth?.version}
     >
-      {route === "messages" ? <MessagesView messages={messages} daemonConnected={state.daemon.connected}
-        available={state.daemon.protocol?.capabilities.includes("messages") === true} /> : <DevicesView
+      {route === "notifications" && <NotificationsView notifications={notifications} daemonConnected={state.daemon.connected}
+        available={notificationsAvailable}
+        onOpenDevices={() => setRoute("devices")} />}
+      {route === "messages" && <MessagesView messages={messages} daemonConnected={state.daemon.connected}
+        available={state.daemon.protocol?.capabilities.includes("messages") === true} />}
+      {route === "devices" && <DevicesView
         daemon={state.daemon}
         state={state.devices}
         onScan={() => {

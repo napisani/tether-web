@@ -17,6 +17,21 @@ test("reads and replies to an iPhone conversation", async ({ page, request }) =>
   await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
 });
 
+test("lists and dismisses an iPhone notification", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withNotifications: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Notifications" }).click();
+  await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
+  await expect(page.getByText("A letter")).toBeVisible();
+  await expect(page.getByText("Hello from your iPhone")).toBeVisible();
+  await expect(page.getByText("Appointment")).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss Mail notification on iPhone" }).click();
+  await expect(page.getByText("A letter")).not.toBeVisible();
+  await expect(page.getByText("Appointment")).toBeVisible();
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByText("Appointment")).toBeVisible();
+});
+
 test("pairs an iPhone through the guided browser flow", async ({ page }) => {
   await page.goto("/");
 

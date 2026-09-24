@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import "./AppShell.css";
 
+export type AppRoute = "devices" | "messages" | "notifications";
+
 export function AppShell({
   children,
   route,
@@ -13,8 +15,8 @@ export function AppShell({
   version,
 }: {
   children: ReactNode;
-  route: "devices" | "messages";
-  onNavigate: (route: "devices" | "messages") => void;
+  route: AppRoute;
+  onNavigate: (route: AppRoute) => void;
   daemonConnected: boolean;
   bluetoothAvailable: boolean;
   wifiConnected: boolean;
@@ -40,8 +42,8 @@ export function AppShell({
 
 function AppHeader({ connected, route, onNavigate }: {
   connected: boolean;
-  route: "devices" | "messages";
-  onNavigate: (route: "devices" | "messages") => void;
+  route: AppRoute;
+  onNavigate: (route: AppRoute) => void;
 }) {
   return (
     <header className="app-header">
@@ -54,7 +56,8 @@ function AppHeader({ connected, route, onNavigate }: {
           aria-current={route === "devices" ? "page" : undefined} onClick={() => onNavigate("devices")}>Devices</button>
         <button type="button" className={`nav-item ${route === "messages" ? "active" : ""}`}
           aria-current={route === "messages" ? "page" : undefined} onClick={() => onNavigate("messages")}>Messages</button>
-        <span className="nav-item future" title="Available in a future web release">Notifications</span>
+        <button type="button" className={`nav-item ${route === "notifications" ? "active" : ""}`}
+          aria-current={route === "notifications" ? "page" : undefined} onClick={() => onNavigate("notifications")}>Notifications</button>
         <span className="nav-item future" title="Available in a future web release">Calls</span>
         <span className="nav-item future" title="Available in a future web release">Contacts</span>
       </nav>

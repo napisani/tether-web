@@ -20,7 +20,7 @@ The web client provides the Devices view's guided Bluetooth flow:
 - discover, approve, connect, and forget Tether peers over Wi-Fi; and
 - send files to a connected trusted peer from a file picker or drop zone.
 
-This branch also adds Messages: conversation search and history, drafts, contact suggestions, sending, and read-state handling. It requires a separate upstream change that echoes an optional message-send operation ID; uncorrelated results never clear a browser draft. This is not yet a complete replacement for Tether's GTK client. Notifications, calls, contacts, settings, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
+The web client also offers Messages (conversation search, history, drafts, contact suggestions, sending, and read state) and Notifications (ANCS list, refresh, source details, and dismissal on the iPhone). Confirmed Messages sending requires the upstream optional message-send operation ID; uncorrelated results never clear a browser draft. This is not yet a complete GTK replacement: calls, contacts, settings, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
 
 ## Requirements
 

@@ -100,6 +100,17 @@ describe("parseDaemonEvent", () => {
     }))).toMatchObject({ command: "file_send_complete", operation_id: "upload-1" });
   });
 
+  it("validates notification UIDs, lists, and action results", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notifications", notifications: [{ uid: -1 }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notifications", notifications: [{ uid: 42, title: 123 }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notification_removed", uid: "42" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notification_action_result", uid: 42, success: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notifications", notifications: [{ uid: 42, title: "Hello" }] })))
+      .toMatchObject({ command: "bt_notifications", notifications: [{ uid: 42, title: "Hello" }] });
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notification_action_result", uid: 42, success: true })))
+      .toMatchObject({ command: "bt_notification_action_result", uid: 42, success: true });
+  });
+
   it("validates Messages payloads before rendering them", () => {
     expect(parseDaemonEvent(JSON.stringify({ command: "bt_threads", threads: [{ name: "Missing key" }] }))).toBeUndefined();
     expect(parseDaemonEvent(JSON.stringify({ command: "bt_messages", thread: "tel:+15550102", messages: [{ body: "Hi" }] }))).toBeUndefined();

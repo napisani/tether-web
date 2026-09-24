@@ -324,6 +324,32 @@ const contactListEventSchema = open({
   contacts: z.array(open({ name: z.string(), addresses: z.array(z.string().min(1)) })),
 });
 
+const notificationUid = z.number().int().min(0).max(4_294_967_295);
+
+const notificationFields = {
+  uid: notificationUid,
+  app_id: optionalString,
+  app_name: optionalString,
+  title: optionalString,
+  subtitle: optionalString,
+  body: optionalString,
+  category: z.number().int().optional(),
+  timestamp: z.number().finite().optional(),
+  silent: optionalBoolean,
+  positive_action: optionalBoolean,
+  negative_action: optionalBoolean,
+};
+
+const notificationListEventSchema = open({ command: z.literal("bt_notifications"),
+  notifications: z.array(open(notificationFields)) });
+
+const newNotificationEventSchema = open({ command: z.literal("bt_notification"), ...notificationFields });
+
+const notificationRemovedEventSchema = open({ command: z.literal("bt_notification_removed"), uid: notificationUid });
+
+const notificationActionResultEventSchema = open({ command: z.literal("bt_notification_action_result"),
+  uid: notificationUid, success: z.boolean() });
+
 const gatewayStatusEventSchema = open({
   command: z.literal("gateway_status"),
   operation_id: operationId,
@@ -362,6 +388,10 @@ export const daemonEventSchema = z.discriminatedUnion("command", [
   messageSendResultEventSchema,
   messageReadEventSchema,
   contactListEventSchema,
+  notificationListEventSchema,
+  newNotificationEventSchema,
+  notificationRemovedEventSchema,
+  notificationActionResultEventSchema,
 ]);
 
 export const daemonCommandSchema = z.discriminatedUnion("command", [
@@ -391,6 +421,8 @@ export const daemonCommandSchema = z.discriminatedUnion("command", [
   open({ command: z.literal("bt_list_contacts"), query: z.string(), limit: z.number().int().positive().optional() }),
   open({ command: z.literal("bt_mark_read"), handles: z.array(z.string().min(1)).min(1), read: z.literal(true) }),
   open({ command: z.literal("bt_send_message"), thread: z.string().min(1), body: z.string().min(1), operation_id: z.string().min(1) }),
+  open({ command: z.literal("bt_list_notifications") }),
+  open({ command: z.literal("bt_notification_action"), uid: notificationUid, action: z.literal("negative") }),
 ]);
 
 export const commandBodySchema = daemonCommandSchema;

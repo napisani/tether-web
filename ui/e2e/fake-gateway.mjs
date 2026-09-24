@@ -26,6 +26,8 @@ let messageThreads = [];
 
 let messageHistory = [];
 
+let phoneNotifications = [];
+
 const maxUploadBytes = 256 * 1024 * 1024;
 
 const maxChunkBytes = 48 * 1024;
@@ -150,7 +152,21 @@ function setPhonePaired(paired) {
   durable.bt_connection_changed = paired ? connectedConnection() : disconnectedConnection();
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false } = {}) {
+function resetNotificationScenario(withMessages, withNotifications) {
+  phoneNotifications = withNotifications ? [
+    { uid: 42, app_id: "com.example.mail", app_name: "Mail", title: "A letter", subtitle: "Sender",
+      body: "Hello from your iPhone", timestamp: 1_700_000_000, negative_action: true },
+    { uid: 43, app_id: "com.example.calendar", app_name: "Calendar", body: "Appointment",
+      timestamp: 1_700_000_020, negative_action: false },
+  ] : [];
+  durable.protocol_info.capabilities = ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers"];
+
+  if (withMessages) durable.protocol_info.capabilities.push("messages");
+
+  if (withNotifications) durable.protocol_info.capabilities.push("notifications");
+}
+
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, withNotifications = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
@@ -160,11 +176,9 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   uploads.clear();
   messageThreads = withMessages ? [{ thread: "tel:+15550102", name: "Ada", address: "+15550102", preview: "See you soon", timestamp: 1_700_000_000, unread: 1, repliable: true }] : [];
   messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
-  durable.protocol_info.capabilities = withMessages
-    ? ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "messages", "peers"]
-    : ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers"];
+  resetNotificationScenario(withMessages, withNotifications);
   durable.bt_status = baseBluetoothStatus();
-  setPhonePaired(paired || withMessages);
+  setPhonePaired(paired || withMessages || withNotifications);
   durable.state_snapshot = emptyStateSnapshot();
 
   if (bluetoothSetup && paired) {
@@ -321,6 +335,16 @@ const commandHandlers = {
     messageThreads = messageThreads.map((item) => ({ ...item, unread: 0 }));
     publish({ command: "bt_message_read", handles: command.handles, read: command.read, success: true });
   }, 10),
+  bt_list_notifications: () => later(() => publish({ command: "bt_notifications", notifications: phoneNotifications }), 10),
+  bt_notification_action: (command) => {
+    if (command.action !== "negative" || !phoneNotifications.some((item) => item.uid === command.uid && item.negative_action)) return false;
+
+    later(() => {
+      publish({ command: "bt_notification_action_result", uid: command.uid, success: true });
+      phoneNotifications = phoneNotifications.filter((item) => item.uid !== command.uid);
+      publish({ command: "bt_notification_removed", uid: command.uid });
+    }, 20);
+  },
   bt_send_message: (command) => later(() => {
     const message = { command: "bt_message", handle: `sent-${messageHistory.length}`, thread: command.thread,
       body: command.body, timestamp: Math.floor(Date.now() / 1000), outgoing: true, read: true };

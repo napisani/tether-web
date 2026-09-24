@@ -319,6 +319,40 @@ export interface ContactListEvent extends DaemonEventBase {
   contacts: ContactSuggestion[];
 }
 
+export interface PhoneNotification extends JsonRecord {
+  uid: number;
+  app_id?: string;
+  app_name?: string;
+  title?: string;
+  subtitle?: string;
+  body?: string;
+  category?: number;
+  timestamp?: number;
+  silent?: boolean;
+  positive_action?: boolean;
+  negative_action?: boolean;
+}
+
+export interface NotificationListEvent extends DaemonEventBase {
+  command: "bt_notifications";
+  notifications: PhoneNotification[];
+}
+
+export interface NewNotificationEvent extends DaemonEventBase, PhoneNotification {
+  command: "bt_notification";
+}
+
+export interface NotificationRemovedEvent extends DaemonEventBase {
+  command: "bt_notification_removed";
+  uid: number;
+}
+
+export interface NotificationActionResultEvent extends DaemonEventBase {
+  command: "bt_notification_action_result";
+  uid: number;
+  success: boolean;
+}
+
 export interface GatewayStatusEvent extends DaemonEventBase {
   command: "gateway_status";
   daemon_connected: boolean;
@@ -346,6 +380,10 @@ export type DaemonEvent =
   | MessageSendResultEvent
   | MessageReadEvent
   | ContactListEvent
+  | NotificationListEvent
+  | NewNotificationEvent
+  | NotificationRemovedEvent
+  | NotificationActionResultEvent
   | GatewayStatusEvent;
 
 export interface BluetoothScanCommand extends JsonRecord {
@@ -491,6 +529,16 @@ export interface SendMessageCommand extends JsonRecord {
   operation_id: string;
 }
 
+export interface ListNotificationsCommand extends JsonRecord {
+  command: "bt_list_notifications";
+}
+
+export interface DismissNotificationCommand extends JsonRecord {
+  command: "bt_notification_action";
+  uid: number;
+  action: "negative";
+}
+
 export type DaemonCommand =
   | BluetoothScanCommand
   | BluetoothStatusCommand
@@ -517,7 +565,9 @@ export type DaemonCommand =
   | ListMessagesCommand
   | ListContactsCommand
   | MarkMessagesReadCommand
-  | SendMessageCommand;
+  | SendMessageCommand
+  | ListNotificationsCommand
+  | DismissNotificationCommand;
 
 export interface GatewayState {
   daemon_connected: boolean;
