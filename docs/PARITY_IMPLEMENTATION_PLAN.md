@@ -89,9 +89,9 @@ PR #211 remains unchanged at its existing committed head.
 - Send sequentially through the existing browser-upload protocol.
 - Show current item, batch progress, failures, skipped items, and final tally.
 - Define cancellation and clear queues on disconnect/unmount.
-- Defer **Send Clipboard** until the app-wide web authentication design and
-  response-confirmation semantics are approved; the existing uncorrelated
-  `clipboard_content` broadcast is not safe to treat as a request result.
+- Defer **Send Clipboard** until cross-client event visibility and
+  response-confirmation semantics are approved; HTTP Basic protects access but
+  the uncorrelated `clipboard_content` broadcast cannot prove request ownership.
 - Show accurate compositor/clipboard availability guidance.
 
 This batch should not require C++ changes.
@@ -152,7 +152,8 @@ Before declaring parity complete:
 ## Current execution boundary
 
 Batches 1–3 are deployed to the homelab from pinned core and web stack tips;
-Messages passed user-led phone testing. Batch 4 Notifications is being developed
-locally above the Messages web branch and is not deployed. Send Clipboard is
-deferred pending app-wide security and trustworthy completion semantics. Each
-new deployment needs separate approval.
+Messages passed user-led phone testing. Batch 4 Notifications is committed but
+not deployed. Batch 5 Calls is in a separate stacked local web worktree, still
+awaiting physical-phone HFP validation. Send Clipboard is deferred pending
+app-wide security and trustworthy completion semantics. Each new deployment
+needs separate approval.

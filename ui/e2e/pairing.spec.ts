@@ -32,6 +32,26 @@ test("lists and dismisses an iPhone notification", async ({ page, request }) => 
   await expect(page.getByText("Appointment")).toBeVisible();
 });
 
+test("controls iPhone calls without claiming browser audio", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withCalls: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Calls" }).click();
+  await expect(page.getByRole("button", { name: "Calls" })).toBeInViewport({ ratio: 0.98 });
+  await expect(page.getByText("Ada")).toBeVisible();
+  await expect(page.getByText("Withheld number")).toBeVisible();
+  await expect(page.getByText(/not in this browser/)).toBeVisible();
+  await page.getByRole("button", { name: "Answer call from Ada" }).click();
+  await expect(page.getByRole("button", { name: "Hang up call with Ada" })).toBeVisible();
+  await page.getByRole("button", { name: "Audio on tetherd host" }).click();
+  await expect(page.getByRole("button", { name: "Audio on iPhone" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Number to call" }).fill("+15550109");
+  await page.getByRole("button", { name: "Call", exact: true }).click();
+  await expect(page.getByText("+15550109")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check iPhone" })).toBeDisabled();
+  await page.getByRole("button", { name: "Hang up call with Ada" }).click();
+  await expect(page.getByText("Ada")).not.toBeVisible();
+});
+
 test("pairs an iPhone through the guided browser flow", async ({ page }) => {
   await page.goto("/");
 

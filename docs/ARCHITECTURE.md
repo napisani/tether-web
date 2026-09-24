@@ -75,11 +75,9 @@ Do not add routes such as `/api/v1/messages` or `/api/v1/contacts`. Those would 
 
 ## Security boundary
 
-The browser API is powerful: it can submit daemon commands and receive private daemon events. The current service has no authentication.
+The browser API is powerful: it can submit daemon commands and receive private daemon events. The process defaults to `127.0.0.1:5135`, where local access needs no credentials. A non-loopback listener requires HTTP Basic credentials loaded from a password file; the gateway protects assets, state, events, and commands, while health probes remain available. A wildcard listener also requires an explicit Host allowlist. Remote traffic must use HTTPS; Host validation is not authentication, and credentials must be mounted from a secret rather than baked into the image or repository.
 
-The process therefore defaults to `127.0.0.1:5135`. A wildcard listener requires an explicit Host allowlist, but Host validation is not authentication. Expose the service remotely only behind an authenticating reverse proxy or within a deliberately trusted and firewalled network.
-
-Operation IDs provide correlation, not authorization. Every client that can read the event stream and submit commands is inside the same trust boundary; a malicious authorized client can replay a visible operation ID. The React client uses IDs to prevent accidental cross-tab state handling, while deployment authentication and access control remain responsible for excluding hostile clients.
+All authenticated browsers share the same daemon privileges; this remains a single-owner service. Operation IDs provide correlation, not authorization. A client with valid credentials can submit any supported daemon command. The React client uses IDs to avoid accidental cross-tab state handling where the daemon provides them. Global call results do not provide IDs, so the browser never uses them (or an arbitrary outgoing call) to complete a local dial.
 
 The gateway also:
 

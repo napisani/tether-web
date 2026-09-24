@@ -83,6 +83,7 @@ export interface BluetoothConnectionEvent extends DaemonEventBase {
   link_reason?: string;
   profile_reason?: string;
   ancs_reason?: string;
+  calls?: CallConnectionStatus | null;
   last_error?: string;
   remedy?: string;
 }
@@ -353,6 +354,43 @@ export interface NotificationActionResultEvent extends DaemonEventBase {
   success: boolean;
 }
 
+export interface PhoneCall extends JsonRecord {
+  path: string;
+  number?: string;
+  name?: string;
+  state?: string;
+  withheld?: boolean;
+  ringing?: boolean;
+  connected?: boolean;
+  outgoing?: boolean;
+  incoming_line?: string;
+  multiparty?: boolean;
+}
+
+export interface CallConnectionStatus extends JsonRecord {
+  available: boolean;
+  reason?: string;
+  audio?: string;
+  indicators?: boolean;
+  operator?: string;
+  service?: boolean;
+  signal?: number;
+  roaming?: boolean;
+  battery?: number;
+}
+
+export interface CallListEvent extends DaemonEventBase {
+  command: "bt_calls";
+  calls: PhoneCall[];
+}
+
+export interface CallResultEvent extends DaemonEventBase {
+  command: "bt_call_result";
+  action: string;
+  success: boolean;
+  message?: string;
+}
+
 export interface GatewayStatusEvent extends DaemonEventBase {
   command: "gateway_status";
   daemon_connected: boolean;
@@ -384,6 +422,8 @@ export type DaemonEvent =
   | NewNotificationEvent
   | NotificationRemovedEvent
   | NotificationActionResultEvent
+  | CallListEvent
+  | CallResultEvent
   | GatewayStatusEvent;
 
 export interface BluetoothScanCommand extends JsonRecord {
@@ -539,6 +579,25 @@ export interface DismissNotificationCommand extends JsonRecord {
   action: "negative";
 }
 
+export interface ProtocolInfoCommand extends JsonRecord {
+  command: "protocol_info";
+}
+
+export interface ListCallsCommand extends JsonRecord {
+  command: "bt_list_calls";
+}
+
+export interface DialCallCommand extends JsonRecord {
+  command: "bt_call_dial";
+  number: string;
+}
+
+export interface CallActionCommand extends JsonRecord {
+  command: "bt_call_action";
+  action: "answer" | "hangup" | "audio_here" | "audio_phone";
+  path?: string;
+}
+
 export type DaemonCommand =
   | BluetoothScanCommand
   | BluetoothStatusCommand
@@ -567,7 +626,11 @@ export type DaemonCommand =
   | MarkMessagesReadCommand
   | SendMessageCommand
   | ListNotificationsCommand
-  | DismissNotificationCommand;
+  | DismissNotificationCommand
+  | ProtocolInfoCommand
+  | ListCallsCommand
+  | DialCallCommand
+  | CallActionCommand;
 
 export interface GatewayState {
   daemon_connected: boolean;

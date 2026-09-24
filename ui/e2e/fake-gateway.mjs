@@ -28,6 +28,8 @@ let messageHistory = [];
 
 let phoneNotifications = [];
 
+let phoneCalls = [];
+
 const maxUploadBytes = 256 * 1024 * 1024;
 
 const maxChunkBytes = 48 * 1024;
@@ -166,7 +168,22 @@ function resetNotificationScenario(withMessages, withNotifications) {
   if (withNotifications) durable.protocol_info.capabilities.push("notifications");
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, withNotifications = false } = {}) {
+function resetCallsScenario(withCalls) {
+  phoneCalls = withCalls ? [
+    { path: "/call/1", name: "Ada", number: "+15550102", state: "incoming", ringing: true },
+    { path: "/call/2", number: "", withheld: true, state: "active", connected: true },
+  ] : [];
+  durable.bt_status.calls_enabled = withCalls;
+
+  if (withCalls) {
+    durable.protocol_info.capabilities.push("calls");
+    durable.bt_connection_changed = { ...durable.bt_connection_changed,
+      calls: { available: true, reason: "Calls are controlled here; audio plays on the iPhone.",
+        audio: "idle", indicators: true, operator: "Carrier", signal: 4, battery: 3, service: true } };
+  }
+}
+
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, withNotifications = false, withCalls = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
@@ -178,7 +195,8 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
   resetNotificationScenario(withMessages, withNotifications);
   durable.bt_status = baseBluetoothStatus();
-  setPhonePaired(paired || withMessages || withNotifications);
+  setPhonePaired([paired, withMessages, withNotifications, withCalls].some(Boolean));
+  resetCallsScenario(withCalls);
   durable.state_snapshot = emptyStateSnapshot();
 
   if (bluetoothSetup && paired) {
@@ -284,6 +302,7 @@ function respondToCommand(response, command) {
 }
 
 const commandHandlers = {
+  protocol_info: () => later(() => publish(durable.protocol_info), 10),
   discover: () => later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10),
   accept_device: () => {
     durable.state_snapshot.pending_pairs = [];
@@ -336,6 +355,43 @@ const commandHandlers = {
     publish({ command: "bt_message_read", handles: command.handles, read: command.read, success: true });
   }, 10),
   bt_list_notifications: () => later(() => publish({ command: "bt_notifications", notifications: phoneNotifications }), 10),
+  bt_list_calls: () => later(() => publish({ command: "bt_calls", calls: phoneCalls }), 10),
+  bt_call_dial: (command) => later(() => {
+    if (!command.number?.trim()) {
+      publish({ command: "bt_call_result", action: "dial", success: false, message: "Not a dialable number." });
+
+      return;
+    }
+
+    phoneCalls.push({ path: `/call/${phoneCalls.length + 1}`, number: command.number,
+      state: "dialing", outgoing: true });
+    publish({ command: "bt_call_result", action: "dial", success: true });
+    publish({ command: "bt_calls", calls: phoneCalls });
+  }, 20),
+  bt_call_action: (command) => later(() => {
+    const call = phoneCalls.find((item) => item.path === command.path);
+
+    const valid = command.action === "audio_here" || command.action === "audio_phone" ||
+      Boolean(call && (command.action === "hangup" || (command.action === "answer" && call.ringing)));
+
+    const result = { command: "bt_call_result", action: command.action, success: valid };
+
+    if (!valid) result.message = "That call is no longer active.";
+    publish(result);
+
+    if (!valid) return;
+
+    if (command.action === "answer") Object.assign(call, { state: "active", ringing: false, connected: true });
+
+    if (command.action === "hangup") phoneCalls = phoneCalls.filter((item) => item.path !== command.path);
+
+    if (command.action === "audio_here" || command.action === "audio_phone") {
+      durable.bt_connection_changed.calls.audio = command.action === "audio_here" ? "active" : "idle";
+      publish(durable.bt_connection_changed);
+    }
+
+    publish({ command: "bt_calls", calls: phoneCalls });
+  }, 20),
   bt_notification_action: (command) => {
     if (command.action !== "negative" || !phoneNotifications.some((item) => item.uid === command.uid && item.negative_action)) return false;
 

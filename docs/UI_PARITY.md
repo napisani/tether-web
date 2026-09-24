@@ -60,11 +60,11 @@ its ownership should still make the GTK/Web relationship obvious.
 
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
-| App shell | Partial | Shared header, Devices/Messages/Notifications view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
+| App shell | Partial | Shared header, Devices/Messages/Notifications/Calls view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
 | Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
 | Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, reconnect cleanup, responsive navigation; user-validated on a physical phone | Broader device/permission matrix, app-wide unread state |
 | Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation | Physical-phone ANCS validation, browser OS notification policy |
-| Calls | Not started | Navigation placeholder | Availability, call list, dial, answer, hang up, audio routing, network state |
+| Calls | Partial | HFP availability, live call list, dial/answer/decline/hang up, daemon-host/iPhone audio routing, network indicators, withheld numbers, reconnect and uncertain-outcome handling | Physical-phone HFP validation, contact completion, persistent call history (not supplied by daemon) |
 | Contacts | Not started | Navigation placeholder | Search, grouped contact details, message handoff |
 | Settings | Not started | None | Bluetooth, ANCS, popup, call, away-lock, retention, and tray preferences where applicable |
 | Shared helpers | Partial | Message formatting for the Messages view | App-wide contact completion, persisted preferences |
@@ -85,9 +85,9 @@ user-visible capability.
    separate optional `bt_send_message` operation-ID change upstream before
    shipping: the web never treats an uncorrelated global send result as its own.
    Extend device/permission coverage and app-wide unread state separately.
-4. **Add Notifications and Calls.** Notifications now mirror GTK's visibility-
-   driven refresh and daemon capability behavior locally; Calls remain. Validate
-   notification content and dismissal on a physical iPhone before rollout.
+4. **Add Notifications and Calls.** Both views now mirror GTK's visibility-
+   driven refresh and daemon capability behavior locally. Validate notification
+   dismissal and Hands-Free calls on a physical iPhone before rollout.
 5. **Add Contacts.** Preserve search and the handoff that opens a message thread.
 6. **Add Settings and preferences.** Share terminology and daemon settings while
    adapting desktop-only controls to browser equivalents or recording why no
@@ -159,9 +159,24 @@ code. They are decisions to review, not implicit omissions.
   so the browser disables the matching row while the result is pending and
   leaves uncertain outcomes disabled until the daemon removes the notification
   or the connection is reset. The daemon's `ancs_reason` is shown verbatim.
+- Calls use the daemon's live HFP `bt_calls` snapshot, not an invented call
+  history. The browser deliberately leaves the dial number intact after a
+  global, uncorrelated `bt_call_result`. Neither that result nor an unrelated
+  outgoing call completes this browser's dial: repeat dialing stays disabled
+  until the user checks the iPhone and explicitly enables retry after the
+  pending action times out. Answer and hang-up actions resolve only from the
+  targeted call's state; unrelated global results do not alter pending work.
+  GTK's “Audio here” means the daemon host's PipeWire backend, not
+  the device running a remote browser. The web UI explicitly names that host
+  and does not claim to stream call audio into the browser. GTK hides the Calls
+  tab when call control is off; the web leaves a guidance page reachable so
+  users can see the host command needed to opt in. A remote gateway now
+  requires a password file and protects the browser API with HTTP Basic over
+  deployment-provided HTTPS; all authenticated sessions still share the same
+  daemon permissions.
 - **Send Clipboard** remains deferred. `clipboard_send` reads the *host desktop*
-  selection, not the browser clipboard, but the current gateway has no user
-  authentication and broadcasts plaintext clipboard events to every browser.
+  selection, not the browser clipboard, and broadcasts plaintext clipboard
+  events to every authenticated browser.
   The global `clipboard_content` response cannot safely confirm which request
   completed after a timeout or from another tab. Resolve app-wide security and
   confirmation semantics before exposing this action in the web UI.

@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import "./AppShell.css";
 
-export type AppRoute = "devices" | "messages" | "notifications";
+export type AppRoute = "devices" | "messages" | "notifications" | "calls";
 
 export function AppShell({
   children,
@@ -45,20 +45,27 @@ function AppHeader({ connected, route, onNavigate }: {
   route: AppRoute;
   onNavigate: (route: AppRoute) => void;
 }) {
+  const nav = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [route]);
+
   return (
     <header className="app-header">
       <div className="brand" aria-label="Tether">
         <span className="brand-mark" aria-hidden="true">T</span>
         <span>Tether</span>
       </div>
-      <nav className="primary-nav" aria-label="Primary navigation">
+      <nav className="primary-nav" aria-label="Primary navigation" ref={nav}>
         <button type="button" className={`nav-item ${route === "devices" ? "active" : ""}`}
           aria-current={route === "devices" ? "page" : undefined} onClick={() => onNavigate("devices")}>Devices</button>
         <button type="button" className={`nav-item ${route === "messages" ? "active" : ""}`}
           aria-current={route === "messages" ? "page" : undefined} onClick={() => onNavigate("messages")}>Messages</button>
         <button type="button" className={`nav-item ${route === "notifications" ? "active" : ""}`}
           aria-current={route === "notifications" ? "page" : undefined} onClick={() => onNavigate("notifications")}>Notifications</button>
-        <span className="nav-item future" title="Available in a future web release">Calls</span>
+        <button type="button" className={`nav-item ${route === "calls" ? "active" : ""}`}
+          aria-current={route === "calls" ? "page" : undefined} onClick={() => onNavigate("calls")}>Calls</button>
         <span className="nav-item future" title="Available in a future web release">Contacts</span>
       </nav>
       <span

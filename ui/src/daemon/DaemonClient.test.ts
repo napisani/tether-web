@@ -111,6 +111,16 @@ describe("parseDaemonEvent", () => {
       .toMatchObject({ command: "bt_notification_action_result", uid: 42, success: true });
   });
 
+  it("validates Hands-Free status, call lists, and global action results", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_connection_changed", calls: { available: "yes" } }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_calls", calls: [{ state: "incoming" }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_call_result", action: "dial", success: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_calls", calls: [{ path: "/call/1", withheld: true, number: "" }] })))
+      .toMatchObject({ command: "bt_calls", calls: [{ path: "/call/1", withheld: true }] });
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_call_result", action: "dial", success: false, message: "No service." })))
+      .toMatchObject({ command: "bt_call_result", success: false });
+  });
+
   it("validates Messages payloads before rendering them", () => {
     expect(parseDaemonEvent(JSON.stringify({ command: "bt_threads", threads: [{ name: "Missing key" }] }))).toBeUndefined();
     expect(parseDaemonEvent(JSON.stringify({ command: "bt_messages", thread: "tel:+15550102", messages: [{ body: "Hi" }] }))).toBeUndefined();
@@ -136,6 +146,14 @@ describe("parseDaemonEvent", () => {
 });
 
 describe("sendDaemonCommand", () => {
+  it("rejects unsupported call actions before contacting tetherd", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendDaemonCommand({ command: "bt_call_action", action: "hold_and_answer" } as never))
+      .rejects.toThrow("invalid tetherd command");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("aborts a stalled command and reports a timeout", async () => {
     const controller = new AbortController();
     vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);

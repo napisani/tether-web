@@ -45,6 +45,10 @@ func run() error {
 		return errors.New("TETHER_WEB_ALLOWED_HOSTS is required when listening on a wildcard address")
 	}
 	allowedHosts = append(allowedHosts, "127.0.0.1", "localhost", "::1")
+	auth, err := gatewayAuth(listenAddress)
+	if err != nil {
+		return err
+	}
 
 	socketPath := os.Getenv("TETHER_SOCKET_PATH")
 	if socketPath == "" {
@@ -64,7 +68,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              listenAddress,
-		Handler:           gateway.NewHandler(bus, assets, gateway.Config{AllowedHosts: allowedHosts, StagingDir: filepath.Dir(socketPath)}),
+		Handler:           gateway.NewHandler(bus, assets, gateway.Config{AllowedHosts: allowedHosts, StagingDir: filepath.Dir(socketPath), Auth: auth}),
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
@@ -100,6 +104,29 @@ func isWildcardListenAddress(address string) (bool, error) {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsUnspecified(), nil
+}
+
+func gatewayAuth(address string) (*gateway.BasicCredentials, error) {
+	username := os.Getenv("TETHER_WEB_AUTH_USER")
+	passwordFile := os.Getenv("TETHER_WEB_AUTH_PASSWORD_FILE")
+	host, _, _ := net.SplitHostPort(address) // validated by isWildcardListenAddress
+	ip := net.ParseIP(host)
+	loopback := strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
+	if username == "" && passwordFile == "" && loopback {
+		return nil, nil
+	}
+	if username == "" || strings.ContainsAny(username, ":\r\n") || passwordFile == "" {
+		return nil, errors.New("TETHER_WEB_AUTH_USER and TETHER_WEB_AUTH_PASSWORD_FILE are required for non-loopback listeners")
+	}
+	contents, err := os.ReadFile(passwordFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading TETHER_WEB_AUTH_PASSWORD_FILE: %w", err)
+	}
+	password := strings.TrimSuffix(strings.TrimSuffix(string(contents), "\n"), "\r")
+	if len(password) < 16 || len(password) > 4096 {
+		return nil, errors.New("TETHER_WEB_AUTH_PASSWORD_FILE must contain a password between 16 and 4096 bytes")
+	}
+	return &gateway.BasicCredentials{Username: username, Password: password}, nil
 }
 
 func envOr(key, fallback string) string {

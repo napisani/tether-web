@@ -8,6 +8,7 @@ import (
 type Config struct {
 	AllowedHosts []string
 	StagingDir   string
+	Auth         *BasicCredentials
 }
 
 func NewHandler(bus Bus, assets fs.FS, config Config) http.Handler {
@@ -17,5 +18,5 @@ func NewHandler(bus Bus, assets fs.FS, config Config) http.Handler {
 	registerEventHandler(mux, bus)
 	registerCommandHandler(mux, bus, newUploadStore(bus, config.StagingDir))
 	registerAssetHandler(mux, assets)
-	return securityHeaders(validateBrowserRequest(mux, config.AllowedHosts))
+	return securityHeaders(validateBrowserRequest(requireBrowserAuth(mux, config.Auth), config.AllowedHosts))
 }

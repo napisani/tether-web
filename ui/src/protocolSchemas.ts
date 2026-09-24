@@ -95,6 +95,11 @@ export const bluetoothConnectionEventSchema = open({
   link_reason: optionalString,
   profile_reason: optionalString,
   ancs_reason: optionalString,
+  calls: open({
+    available: z.boolean(), reason: optionalString, audio: optionalString, indicators: optionalBoolean,
+    operator: optionalString, service: optionalBoolean, signal: z.number().optional(),
+    roaming: optionalBoolean, battery: z.number().optional(),
+  }).nullable().optional(),
   last_error: optionalString,
   remedy: optionalString,
 });
@@ -350,6 +355,17 @@ const notificationRemovedEventSchema = open({ command: z.literal("bt_notificatio
 const notificationActionResultEventSchema = open({ command: z.literal("bt_notification_action_result"),
   uid: notificationUid, success: z.boolean() });
 
+const phoneCallSchema = open({
+  path: z.string().min(1), number: optionalString, name: optionalString, state: optionalString,
+  withheld: optionalBoolean, ringing: optionalBoolean, connected: optionalBoolean,
+  outgoing: optionalBoolean, incoming_line: optionalString, multiparty: optionalBoolean,
+});
+
+const callListEventSchema = open({ command: z.literal("bt_calls"), calls: z.array(phoneCallSchema) });
+
+const callResultEventSchema = open({ command: z.literal("bt_call_result"),
+  action: z.string(), success: z.boolean(), message: optionalString });
+
 const gatewayStatusEventSchema = open({
   command: z.literal("gateway_status"),
   operation_id: operationId,
@@ -392,6 +408,8 @@ export const daemonEventSchema = z.discriminatedUnion("command", [
   newNotificationEventSchema,
   notificationRemovedEventSchema,
   notificationActionResultEventSchema,
+  callListEventSchema,
+  callResultEventSchema,
 ]);
 
 export const daemonCommandSchema = z.discriminatedUnion("command", [
@@ -423,6 +441,11 @@ export const daemonCommandSchema = z.discriminatedUnion("command", [
   open({ command: z.literal("bt_send_message"), thread: z.string().min(1), body: z.string().min(1), operation_id: z.string().min(1) }),
   open({ command: z.literal("bt_list_notifications") }),
   open({ command: z.literal("bt_notification_action"), uid: notificationUid, action: z.literal("negative") }),
+  open({ command: z.literal("protocol_info") }),
+  open({ command: z.literal("bt_list_calls") }),
+  open({ command: z.literal("bt_call_dial"), number: z.string().min(1).max(256) }),
+  open({ command: z.literal("bt_call_action"),
+    action: z.enum(["answer", "hangup", "audio_here", "audio_phone"]), path: optionalString }),
 ]);
 
 export const commandBodySchema = daemonCommandSchema;
