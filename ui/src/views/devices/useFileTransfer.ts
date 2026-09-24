@@ -8,6 +8,12 @@ const sendResultTimeoutMs = 60_000;
 
 export const maxUploadBytes = 256 * 1024 * 1024;
 
+function batchSummary(sent: number, total: number, failed: number, skipped: number): string {
+  const result = total ? `Sent ${sent} of ${total} ${total === 1 ? "file" : "files"}.` : "No files to send.";
+
+  return `${result}${failed ? ` ${failed} failed.` : ""}${skipped ? ` Skipped ${skipped} non-file ${skipped === 1 ? "item" : "items"}.` : ""}`;
+}
+
 type TransferStatus = "idle" | "uploading" | "sending" | "complete" | "cancelled" | "error";
 
 export type FileTransferState = {
@@ -19,10 +25,24 @@ export type FileTransferState = {
   message?: string;
 };
 
+export type FileBatchState = {
+  total: number;
+  completed: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  pending: number;
+  active: boolean;
+  message?: string;
+};
+
 export type FileTransferActions = {
   state: FileTransferState;
+  batch: FileBatchState;
   sendFile: (file: File) => Promise<void>;
+  sendFiles: (files: File[], skipped?: number) => void;
   cancel: () => void;
+  cancelBatch: () => void;
   handleEvent: (event: DaemonEvent) => void;
   handleDisconnect: () => void;
 };
@@ -35,10 +55,47 @@ const idleTransfer: FileTransferState = {
 
 export function useFileTransfer(): FileTransferActions {
   const [state, setState] = useState<FileTransferState>(idleTransfer);
+  const [batch, setBatch] = useState<FileBatchState>({ total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false });
+  const batchRef = useRef<FileBatchState>({ total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false });
+  const queueRef = useRef<File[]>([]);
+  const startNextRef = useRef<() => void>(() => {});
+  const batchOperationRef = useRef<string | undefined>(undefined);
+  const batchStoppedRef = useRef(false);
+
+  const updateBatch = (next: FileBatchState) => {
+    batchRef.current = next;
+    setBatch(next);
+  };
+
+  const finishItem = (operationId: string, success: boolean) => {
+    if (batchOperationRef.current !== operationId) return;
+    batchOperationRef.current = undefined;
+    const current = batchRef.current;
+    const completed = current.completed + 1;
+    const sent = current.sent + Number(success);
+    const failed = current.failed + Number(!success);
+    const active = !batchStoppedRef.current && queueRef.current.length > 0;
+    updateBatch({
+      ...current, completed, sent, failed, active,
+      pending: active ? queueRef.current.length : 0,
+      message: batchStoppedRef.current ? current.message : active ? undefined : batchSummary(sent, current.total, failed, current.skipped),
+    });
+
+    if (active) queueMicrotask(() => startNextRef.current());
+  };
+
   const operationRef = useRef<string | undefined>(undefined);
   const cancellableOperations = useRef(new Set<string>());
   const stoppedOperations = useRef(new Set<string>());
   const sendTimeout = useRef<number | undefined>(undefined);
+
+  const stopBatch = (message: string) => {
+    if (!batchRef.current.active) return;
+    batchStoppedRef.current = true;
+    const dropped = queueRef.current.length;
+    queueRef.current = [];
+    updateBatch({ ...batchRef.current, active: false, pending: 0, message: `${message}${dropped ? ` ${dropped} queued files dropped.` : ""}` });
+  };
 
   const fail = useCallback((operationId: string, message: string) => {
     stoppedOperations.current.add(operationId);
@@ -51,6 +108,7 @@ export function useFileTransfer(): FileTransferActions {
     setState((current) => current.operationId === operationId
       ? { ...current, status: "error", message }
       : current);
+    finishItem(operationId, false);
   }, []);
 
   const handleEvent = useCallback((event: DaemonEvent) => {
@@ -81,6 +139,7 @@ export function useFileTransfer(): FileTransferActions {
     setState((current) => current.operationId === event.operation_id
       ? { ...current, sentBytes: current.totalBytes, status: "complete", message: event.message }
       : current);
+    finishItem(event.operation_id, true);
   }, [fail]);
 
   const cancel = useCallback(() => {
@@ -94,6 +153,7 @@ export function useFileTransfer(): FileTransferActions {
       ? { ...current, status: "cancelled", message: "File transfer cancelled." }
       : current);
     void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
+    finishItem(operationId, false);
   }, []);
 
   const sendFile = useCallback(async (file: File) => {
@@ -112,6 +172,8 @@ export function useFileTransfer(): FileTransferActions {
     }
 
     const operationId = crypto.randomUUID();
+
+    if (batchRef.current.active) batchOperationRef.current = operationId;
     operationRef.current = operationId;
     cancellableOperations.current.add(operationId);
     stoppedOperations.current.delete(operationId);
@@ -146,8 +208,11 @@ export function useFileTransfer(): FileTransferActions {
         ? { ...current, status: "sending", message: "Waiting for the other device…" }
         : current);
       sendTimeout.current = window.setTimeout(() => {
-        fail(operationId, "Timed out waiting for the file-send result.");
-        void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
+        if (operationRef.current !== operationId) return;
+        stopBatch("The send result timed out; the current file may still be in progress.");
+        setState((current) => current.operationId === operationId
+          ? { ...current, message: "Timed out waiting for the file-send result. The send may still be in progress." }
+          : current);
       }, sendResultTimeoutMs);
       await sendDaemonCommand({ command: "file_upload_finish", operation_id: operationId });
     } catch (error) {
@@ -167,7 +232,59 @@ export function useFileTransfer(): FileTransferActions {
     }
   }, [fail]);
 
+  startNextRef.current = () => {
+    if (!batchRef.current.active || batchStoppedRef.current || operationRef.current) return;
+    const file = queueRef.current.shift();
+
+    if (!file) return;
+    updateBatch({ ...batchRef.current, pending: queueRef.current.length });
+
+    if (file.size > maxUploadBytes) {
+      setState({ filename: file.name, sentBytes: 0, totalBytes: file.size, status: "error", message: "Choose a file no larger than 256 MiB." });
+      const current = batchRef.current;
+      const failed = current.failed + 1;
+      const completed = current.completed + 1;
+      const active = queueRef.current.length > 0;
+      updateBatch({ ...current, failed, completed, active, message: active ? undefined : batchSummary(current.sent, current.total, failed, current.skipped) });
+
+      if (active) queueMicrotask(() => startNextRef.current());
+
+      return;
+    }
+
+    void sendFile(file);
+  };
+
+  const sendFiles = (files: File[], skipped = 0) => {
+    if (!files.length && !skipped) return;
+
+    if (operationRef.current && !batchRef.current.active) {
+      setState((current) => ({ ...current, message: "Wait for the current send to finish before selecting more files." }));
+
+      return;
+    }
+
+    if (!batchRef.current.active) {
+      batchStoppedRef.current = false;
+      queueRef.current = [];
+      updateBatch({ total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: true });
+    }
+
+    queueRef.current.push(...files);
+    const current = batchRef.current;
+    const active = current.active && (files.length > 0 || operationRef.current !== undefined || queueRef.current.length > 0);
+    updateBatch({ ...current, total: current.total + files.length, skipped: current.skipped + skipped, pending: queueRef.current.length, active,
+      message: active ? undefined : batchSummary(current.sent, current.total, current.failed, current.skipped + skipped) });
+    startNextRef.current();
+  };
+
+  const cancelBatch = () => {
+    stopBatch("Batch cancelled.");
+    cancel(); // Once accepted by tetherd, a send cannot be undone; only the remaining queue is dropped.
+  };
+
   const handleDisconnect = useCallback(() => {
+    stopBatch("Connection to tetherd lost.");
     const operationId = operationRef.current;
 
     if (!operationId) return;
@@ -187,6 +304,7 @@ export function useFileTransfer(): FileTransferActions {
       ? { ...current, status: "error", message: "The connection to tetherd was lost." }
       : current);
     void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
+    finishItem(operationId, false);
   }, []);
 
   useEffect(() => () => {
@@ -199,10 +317,13 @@ export function useFileTransfer(): FileTransferActions {
       void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
     }
 
+    queueRef.current = [];
+    batchStoppedRef.current = true;
+
     if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
   }, []);
 
-  return { state, sendFile, cancel, handleEvent, handleDisconnect };
+  return { state, batch, sendFile, sendFiles, cancel, cancelBatch, handleEvent, handleDisconnect };
 }
 
 function readBlob(blob: Blob): Promise<ArrayBuffer> {

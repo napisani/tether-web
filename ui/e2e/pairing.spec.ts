@@ -78,9 +78,9 @@ test("sends a browser file to a trusted peer", async ({ page, request }) => {
   await request.post("/__test/reset", { data: { withPeer: true } });
   await page.goto("/");
   await page.getByRole("button", { name: "Approve and trust" }).click();
-  await expect(page.getByRole("heading", { name: "Send a file" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Send files" })).toBeVisible();
 
-  await page.getByLabel("Choose a file to send").setInputFiles({
+  await page.getByLabel("Choose files to send").setInputFiles({
     name: "notes.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("hello from tether-web"),
@@ -88,6 +88,31 @@ test("sends a browser file to a trusted peer", async ({ page, request }) => {
 
   await expect(page.getByText("Sent", { exact: true })).toBeVisible();
   await expect(page.getByText("File sent.")).toBeVisible();
+});
+
+test("sends a batch sequentially", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withPeer: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Approve and trust" }).click();
+  await page.getByLabel("Choose files to send").setInputFiles([
+    { name: "one.txt", mimeType: "text/plain", buffer: Buffer.from("one") },
+    { name: "two.txt", mimeType: "text/plain", buffer: Buffer.from("two") },
+  ]);
+  await expect(page.getByText("Sent 2 of 2 files.")).toBeVisible();
+  await expect(page.getByText("2 sent · 0 failed · 0 skipped · 0 queued")).toBeVisible();
+});
+
+test("accepts multiple dropped files and reports skipped non-file items", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withPeer: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Approve and trust" }).click();
+  await page.locator(".file-drop-zone").evaluate((zone) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["one"], "dropped.txt", { type: "text/plain" }));
+    transfer.items.add("https://example.invalid/", "text/uri-list");
+    zone.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await expect(page.getByText("Sent 1 of 1 file. Skipped 1 non-file item.")).toBeVisible();
 });
 
 test("guides Bluetooth setup and permission recovery", async ({ page, request }) => {

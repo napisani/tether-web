@@ -4,11 +4,13 @@ import { FileTransfer } from "./FileTransfer";
 import type { FileTransferActions } from "./useFileTransfer";
 import type { PeerActions } from "./usePeerCommands";
 
-function routeDetail(peer: WifiPeer, wifi: WifiState): string {
+function routeDetail(peer: WifiPeer, wifi: WifiState, clipboardAvailable: boolean): string {
   if (peer.connected && peer.paired) {
+    if (!clipboardAvailable) return "Files and one-time codes are connected. This tetherd version does not advertise clipboard sync.";
+
     return wifi.clipboardAvailable
       ? "Clipboard, files, and one-time codes are connected."
-      : "Files and one-time codes are connected. Browser clipboard access is permission-based.";
+      : "Files and one-time codes are connected. The host compositor has no clipboard access; desktop clipboard sync is unavailable.";
   }
 
   if (!wifi.mdnsAvailable) return "avahi-daemon is not running, so other devices cannot find this computer.";
@@ -26,6 +28,7 @@ export function PeerPane({
   actions,
   fileTransfer,
   fileUploadAvailable,
+  clipboardAvailable,
   onForget,
 }: {
   peer: WifiPeer;
@@ -33,6 +36,7 @@ export function PeerPane({
   actions: PeerActions;
   fileTransfer: FileTransferActions;
   fileUploadAvailable: boolean;
+  clipboardAvailable: boolean;
   onForget: () => void;
 }) {
   const location = peer.address ? `${peer.address}:${peer.port}` : "Address unavailable";
@@ -54,12 +58,10 @@ export function PeerPane({
 
       <section className="status-section" aria-labelledby="wifi-route-title">
         <div className="section-heading"><h3 id="wifi-route-title">Wi-Fi route</h3><span>Live from tetherd</span></div>
-        <p className="route-detail">{routeDetail(peer, wifi)}</p>
+        <p className="route-detail">{routeDetail(peer, wifi, clipboardAvailable)}</p>
       </section>
 
-      {peer.paired && peer.connected ? (
-        <FileTransfer available={fileUploadAvailable} actions={fileTransfer} />
-      ) : null}
+      {peer.paired && peer.connected ? <FileTransfer available={fileUploadAvailable} actions={fileTransfer} /> : null}
 
       <div className="actions">
         {peer.paired ? (
@@ -85,7 +87,10 @@ export function PeerPane({
         ) : null}
         <p>
           {peer.paired
-            ? peer.connected ? "This device can exchange clipboard data, files, and one-time codes." : "Open Tether on the other device to reconnect."
+            ? peer.connected ? clipboardAvailable && wifi.clipboardAvailable
+              ? "This device can exchange clipboard data, files, and one-time codes."
+              : "This device can exchange files and one-time codes."
+              : "Open Tether on the other device to reconnect."
             : peer.pending ? "Confirm that you recognize this device before trusting it." : "Approval is required on the other device."}
         </p>
       </div>

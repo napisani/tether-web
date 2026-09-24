@@ -8,8 +8,8 @@ Reach browser parity with every feature currently supported by the upstream
 
 The Go gateway remains a bounded transport adapter. Domain behavior stays in
 `tetherd`, and React owns browser presentation and client-local lifecycle state.
-The private repository must not be published and infrastructure must not be
-deployed as part of this plan.
+The web repository is public. Infrastructure deployment remains a separate,
+explicitly authorized operation.
 
 ## Protocol-first rule
 
@@ -51,7 +51,7 @@ Every batch is independently usable and follows this sequence:
    gates.
 7. Update `docs/UI_PARITY.md`.
 8. Commit and push the bounded batch.
-9. Require successful private `check` and `container` CI.
+9. Require successful `check` and `container` CI.
 10. Confirm a clean working tree before starting the next batch.
 
 Stop with evidence and required owner input if Luna is unavailable, the existing
@@ -76,8 +76,8 @@ Deliver browser parity for the existing GTK Bluetooth setup/status experience:
 No new Bluetooth-control capability or control-specific operation ID is required.
 The browser serializes these global controls locally and bounds pending state.
 
-Acceptance requires full local gates, a usable Luna `OK` verdict, a committed and
-pushed web batch, successful private CI, and a clean `tether-web` working tree.
+Acceptance requires full local gates, a review verdict, a committed and
+pushed web batch, successful CI, and a clean `tether-web` working tree.
 PR #211 remains unchanged at its existing committed head.
 
 ## Batch 2 — Finish Devices
@@ -86,8 +86,9 @@ PR #211 remains unchanged at its existing committed head.
 - Send sequentially through the existing browser-upload protocol.
 - Show current item, batch progress, failures, skipped items, and final tally.
 - Define cancellation and clear queues on disconnect/unmount.
-- Add capability-gated **Send Clipboard** using existing `clipboard_send` and
-  `clipboard_content` messages.
+- Defer **Send Clipboard** until the app-wide web authentication design and
+  response-confirmation semantics are approved; the existing uncorrelated
+  `clipboard_content` broadcast is not safe to treat as a request result.
 - Show accurate compositor/clipboard availability guidance.
 
 This batch should not require C++ changes.
@@ -142,10 +143,12 @@ Before declaring parity complete:
 4. Verify all intentional platform differences are documented.
 5. Verify the gateway is still transport-only and no unapproved upstream change,
    publication, or deployment occurred.
-6. Verify the repository is private and all relevant working trees are clean.
+6. Verify the public repository and all relevant working trees are clean.
 7. Treat every uncertain or weakly verified item as incomplete.
 
 ## Current execution boundary
 
-The current authorized scope ends after Batch 1 is reviewed, committed, pushed,
-verified by private CI, and clean. Do not begin Batch 2 in the same execution.
+Batch 1 is deployed. Batch 2's multi-file queue is implemented locally. Send
+Clipboard is deferred pending a separately approved app-wide security design
+and a trustworthy completion signal. Remaining batches require separate
+authorization.

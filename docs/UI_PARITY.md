@@ -61,7 +61,7 @@ its ownership should still make the GTK/Web relationship obvious.
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
 | App shell | Partial | Shared header, GTK tab order, route status footer | View switching, shortcuts, settings entry, shared unread state |
-| Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, and single-file sending; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Multi-file send queue and Send Clipboard action |
+| Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
 | Messages | Not started | Navigation placeholder | Threads, search, conversation, drafts, compose/send, read state, permission guidance |
 | Notifications | Not started | Navigation placeholder | Notification list, refresh, removal, dismissal, connection guidance |
 | Calls | Not started | Navigation placeholder | Availability, call list, dial, answer, hang up, audio routing, network state |
@@ -77,8 +77,9 @@ user-visible capability.
 1. **Keep the common shell stable.** Route all daemon traffic through one client,
    keep app-wide navigation/status in `app/`, and keep feature state in its view.
 2. **Finish Devices parity.** Bluetooth setup guidance, supervision, and
-   permission recovery are complete. Add GTK-equivalent multi-file queueing and
-   the Send Clipboard action while preserving capability gates and operation cleanup.
+   permission recovery and multi-file queueing are implemented. Send Clipboard
+   is deferred until app-wide security and completion semantics are resolved;
+   complete physical-phone validation without replacing the existing bond.
 3. **Add Messages.** Mirror thread visibility refresh, conversation selection,
    drafts, compose/send state, errors, and disconnect cleanup. Add shared contact
    completion and message formatting as those dependencies appear.
@@ -121,20 +122,34 @@ code. They are decisions to review, not implicit omissions.
   AirPods event.
 - Wi-Fi peers use daemon-owned fingerprints and trust decisions. The browser
   displays the fingerprint before approval, requests discovery after each daemon
-  reconnect, and presents browser-specific clipboard-permission wording instead
-  of GTK compositor diagnostics. Discovery and outbound pairing have bounded
-  client timeouts.
+  reconnect, and reports host compositor availability instead of browser
+  clipboard permission. Discovery and outbound pairing have bounded client
+  timeouts.
 - Wi-Fi discovery and pairing events do not carry operation IDs. The browser
   serializes its own discovery and outbound-pair operations, scopes failures by
   a local token or peer fingerprint where the protocol permits it, and treats
   each valid discovery result as the daemon's latest authoritative snapshot.
 - GTK passes a daemon-host filesystem path to `send_file`. Browsers cannot
-  provide such a path, so the web client reads a selected file in bounded chunks.
+  provide such a path, so the web client reads selected files in bounded chunks.
+  Browser batches enqueue multiple files but stage/send one at a time; oversized
+  items count as failures, non-file drops count as skipped, and cancelling or
+  losing the daemon drops unstarted items. Once `file_upload_finish` has been
+  accepted, cancellation cannot recall that file; the client still waits for
+  its terminal result while preventing the rest of the batch from starting.
+  Folder drops are rejected where the browser exposes directory entries.
   `tetherd` stages at most two 256 MiB uploads in its runtime directory, then
   forwards each completed file through the existing `Client::send_file` path.
   Upload commands and results carry an operation ID; unfinished uploads are
-  cancellable, while an accepted send runs to one terminal result with a bounded
-  browser wait. The Go gateway remains a transport-only JSON bridge.
+  cancellable, while an accepted send keeps operation ownership through a
+  bounded browser wait and then blocks the remaining batch if the result is
+  unknown. It must not start another file until the daemon's terminal result
+  arrives. The Go gateway remains a transport-only JSON bridge.
+- **Send Clipboard** remains deferred. `clipboard_send` reads the *host desktop*
+  selection, not the browser clipboard, but the current gateway has no user
+  authentication and broadcasts plaintext clipboard events to every browser.
+  The global `clipboard_content` response cannot safely confirm which request
+  completed after a timeout or from another tab. Resolve app-wide security and
+  confirmation semantics before exposing this action in the web UI.
 - The current daemon's AirPods connection result has no operation ID or device
   address. The browser scopes pending state to the selected address, prevents a
   duplicate operation for that device in one tab, and times out a missing result; fully rejecting

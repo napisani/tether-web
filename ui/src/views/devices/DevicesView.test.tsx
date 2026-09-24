@@ -92,6 +92,9 @@ function renderDevicesView({
   },
   fileTransfer = {
     state: { sentBytes: 0, totalBytes: 0, status: "idle" },
+    batch: { total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false },
+    sendFiles: vi.fn(),
+    cancelBatch: vi.fn(),
     sendFile: vi.fn(),
     cancel: vi.fn(),
     handleEvent: vi.fn(),
@@ -365,11 +368,14 @@ describe("guided pairing view", () => {
   });
 
   it("offers file selection and drop for a connected trusted peer", () => {
-    const sendFile = vi.fn();
+    const sendFiles = vi.fn();
 
     const fileTransfer: FileTransferActions = {
       state: { sentBytes: 0, totalBytes: 0, status: "idle" },
-      sendFile,
+      batch: { total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false },
+      sendFiles,
+      cancelBatch: vi.fn(),
+      sendFile: vi.fn(),
       cancel: vi.fn(),
       handleEvent: vi.fn(),
       handleDisconnect: vi.fn(),
@@ -394,10 +400,29 @@ describe("guided pairing view", () => {
       fileTransfer,
     });
 
-    expect(screen.getByRole("heading", { name: "Send a file" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Send files" })).toBeInTheDocument();
     const file = new File(["hello"], "hello.txt", { type: "text/plain" });
-    fireEvent.change(screen.getByLabelText("Choose a file to send"), { target: { files: [file] } });
-    expect(sendFile).toHaveBeenCalledWith(file);
+    fireEvent.change(screen.getByLabelText("Choose files to send"), { target: { files: [file] } });
+    expect(sendFiles).toHaveBeenCalledWith([file], 0);
+  });
+
+  it("describes clipboard support only when the daemon advertises it and the host can access it", () => {
+    const peer = { fingerprint: "peer-1", name: "Nearby phone", port: 5134, paired: true, connected: true, pending: false };
+    renderDevicesView({
+      daemon: { ...pairedDaemon, protocol: { ...pairedDaemon.protocol!, capabilities: ["peers"] } },
+      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer], clipboardAvailable: true }, pairing: { phase: "idle" } },
+    });
+    expect(screen.getByText(/does not advertise clipboard sync/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send Clipboard" })).not.toBeInTheDocument();
+  });
+
+  it("reports host clipboard unavailability even when the daemon advertises support", () => {
+    const peer = { fingerprint: "peer-1", name: "Nearby phone", port: 5134, paired: true, connected: true, pending: false };
+    renderDevicesView({
+      daemon: { ...pairedDaemon, protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "clipboard"] } },
+      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer], clipboardAvailable: false }, pairing: { phase: "idle" } },
+    });
+    expect(screen.getByText(/host compositor has no clipboard access/)).toBeInTheDocument();
   });
 
   it("labels file progress and offers cancellation only while staging", () => {
@@ -421,6 +446,9 @@ describe("guided pairing view", () => {
       state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
       fileTransfer: {
         state: { operationId: "upload-1", filename: "notes.txt", sentBytes: 24, totalBytes: 48, status: "uploading" },
+        batch: { total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false },
+        sendFiles: vi.fn(),
+        cancelBatch: vi.fn(),
         sendFile: vi.fn(),
         cancel,
         handleEvent: vi.fn(),

@@ -106,6 +106,7 @@ export function DevicesView({
           pairingAvailable={pairingAvailable}
           bluetoothControlAvailable={bluetoothControlAvailable}
           fileUploadAvailable={fileUploadAvailable}
+          clipboardAvailable={daemon.protocol?.capabilities.includes("clipboard") === true}
           isConfiguredDevice={isConfiguredDevice}
           state={state}
           connection={connection}
@@ -144,6 +145,7 @@ function DeviceContent({
   pairingAvailable,
   bluetoothControlAvailable,
   fileUploadAvailable,
+  clipboardAvailable,
   isConfiguredDevice,
   state,
   connection,
@@ -165,7 +167,7 @@ function DeviceContent({
   pairingAvailable: boolean;
   bluetoothControlAvailable: boolean;
   fileUploadAvailable: boolean;
-  isConfiguredDevice: boolean;
+  clipboardAvailable: boolean;  isConfiguredDevice: boolean;
   state: DevicesState;
   connection: DevicesState["connection"];
   peerActions: PeerActions;
@@ -188,6 +190,7 @@ function DeviceContent({
           actions={peerActions}
           fileTransfer={fileTransfer}
           fileUploadAvailable={fileUploadAvailable}
+          clipboardAvailable={clipboardAvailable}
           onForget={() => onForgetPeer(selectedPeer.fingerprint)}
         />
         : !bluetoothAvailable && !selectedDevice ? <Notice title="Bluetooth is not ready" body="Complete the host Bluetooth setup, then restart the Tether deployment." />

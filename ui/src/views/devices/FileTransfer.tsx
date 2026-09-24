@@ -12,26 +12,29 @@ export function FileTransfer({ available, actions }: { available: boolean; actio
     ? Math.round((actions.state.sentBytes / actions.state.totalBytes) * 100)
     : busy ? 0 : 100;
 
-  const choose = (file?: File) => {
+  const choose = (files: File[], skipped = 0) => {
     setDragging(false);
 
-    if (file && available && !busy) void actions.sendFile(file);
+    if (available) actions.sendFiles(files, skipped);
   };
 
   const drop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    choose(event.dataTransfer.files[0]);
+    const { files, skipped } = droppedFiles(event.dataTransfer);
+    choose(files, skipped);
   };
 
   return (
     <section className="status-section file-transfer" aria-labelledby="send-file-title">
       <div className="section-heading">
-        <h3 id="send-file-title">Send a file</h3>
+        <h3 id="send-file-title">Send files</h3>
         <span>Up to {maxUploadBytes / 1024 / 1024} MiB</span>
       </div>
       <div
-        className={`file-drop-zone ${dragging ? "dragging" : ""} ${!available || busy ? "disabled" : ""}`}
-        onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+        className={`file-drop-zone ${dragging ? "dragging" : ""} ${!available ? "disabled" : ""}`}
+        onDragEnter={(event) => { event.preventDefault();
+
+ if (available) setDragging(true); }}
         onDragOver={(event) => event.preventDefault()}
         onDragLeave={(event) => {
           const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
@@ -43,24 +46,26 @@ export function FileTransfer({ available, actions }: { available: boolean; actio
         <input
           ref={inputRef}
           type="file"
-          aria-label="Choose a file to send"
-          disabled={!available || busy}
+          aria-label="Choose files to send"
+          multiple
+          disabled={!available}
           onChange={(event) => {
-            choose(event.target.files?.[0]);
+            choose(Array.from(event.target.files || []));
             event.target.value = "";
           }}
         />
-        <p>{dragging ? "Drop to send" : "Drop a file here, or choose one from this device."}</p>
+        <p>{dragging ? "Drop to send" : "Drop files here, or choose them from this device."}</p>
         <button
           className="secondary-button"
           type="button"
-          disabled={!available || busy}
+          disabled={!available}
           onClick={() => inputRef.current?.click()}
         >
-          Choose file
+          Choose files
         </button>
       </div>
 
+      <BatchProgress actions={actions} />
       {actions.state.status !== "idle" ? (
         <div className="file-transfer-status" aria-live="polite">
           <div className="file-transfer-summary">
@@ -69,12 +74,42 @@ export function FileTransfer({ available, actions }: { available: boolean; actio
           </div>
           {busy ? <progress aria-label={`Sending ${actions.state.filename || "file"}`} max="100" value={progress}>{progress}%</progress> : null}
           {actions.state.message ? <p className={actions.state.status === "error" ? "error-text" : ""}>{actions.state.message}</p> : null}
-          {cancellable ? <button className="text-button" type="button" onClick={actions.cancel}>Cancel transfer</button> : null}
+          {cancellable && !actions.batch.active ? <button className="text-button" type="button" onClick={actions.cancel}>Cancel transfer</button> : null}
         </div>
       ) : null}
       {!available ? <p className="route-detail">This tetherd version does not support browser file uploads.</p> : null}
     </section>
   );
+}
+
+function droppedFiles(data: DataTransfer) {
+  const items = Array.from(data.items);
+
+  if (!items.length) return { files: Array.from(data.files), skipped: 0 };
+
+  const files: File[] = [];
+  let skipped = 0;
+
+  for (const item of items) {
+    const file = item.kind === "file" && !item.webkitGetAsEntry?.()?.isDirectory ? item.getAsFile() : null;
+
+    if (file) files.push(file);
+    else skipped++;
+  }
+
+  return { files, skipped };
+}
+
+function BatchProgress({ actions }: { actions: FileTransferActions }) {
+  const { batch } = actions;
+
+  if (!batch.total && !batch.skipped) return null;
+
+  return <div className="file-batch-status" role="status" aria-live="polite">
+    <p>{batch.active ? `File ${batch.completed + 1} of ${batch.total}: ${actions.state.filename || "Preparing…"}` : batch.message}</p>
+    <p>{batch.sent} sent · {batch.failed} failed · {batch.skipped} skipped · {batch.pending} queued</p>
+    {batch.active ? <button className="text-button" type="button" onClick={actions.cancelBatch}>Cancel batch</button> : null}
+  </div>;
 }
 
 function transferLabel(status: FileTransferActions["state"]["status"]): string {

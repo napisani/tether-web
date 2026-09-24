@@ -1,7 +1,8 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileUploadStartedEvent } from "../../protocol";
-import { daemonCommandSchema } from "../../protocolSchemas";import { maxUploadBytes, useFileTransfer } from "./useFileTransfer";
+import { daemonCommandSchema } from "../../protocolSchemas";
+import { maxUploadBytes, useFileTransfer } from "./useFileTransfer";
 
 const operationId = "11111111-1111-4111-8111-111111111111";
 
@@ -175,16 +176,99 @@ describe("browser file transfer", () => {
       act(() => vi.advanceTimersByTime(60_000));
 
       expect(result.current.state).toMatchObject({
-        status: "error",
-        message: "Timed out waiting for the file-send result.",
+        status: "sending",
+        message: "Timed out waiting for the file-send result. The send may still be in progress.",
       });
-      expect(parseCommandBody(String(vi.mocked(fetch).mock.calls[2]?.[1]?.body))).toEqual({
-        command: "file_upload_cancel",
-        operation_id: operationId,
-      });
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not advance a batch or accept another selection after an uncertain send timeout", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const { result } = renderHook(() => useFileTransfer());
+      act(() => result.current.sendFiles([new File([], "first.txt"), new File([], "second.txt")]));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(result.current.state.status).toBe("sending");
+      act(() => vi.advanceTimersByTime(60_000));
+      expect(result.current.batch).toMatchObject({ active: false, completed: 0, pending: 0 });
+      expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "file_upload_start")).toHaveLength(1);
+
+      act(() => result.current.sendFiles([new File([], "third.txt")]));
+      expect(result.current.state.message).toContain("Wait for the current send");
+      act(() => result.current.handleEvent({ command: "file_send_complete", operation_id: operationId, success: true }));
+      expect(result.current.batch).toMatchObject({ completed: 1, sent: 1, active: false });
+      expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "file_upload_start")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("queues files sequentially, counts failures and skipped items, then reports the tally", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID")
+      .mockReturnValueOnce(operationId)
+      .mockReturnValueOnce("22222222-2222-4222-8222-222222222222");
+    const { result } = renderHook(() => useFileTransfer());
+
+    act(() => result.current.sendFiles([new File(["a"], "a.txt"), new File(["b"], "b.txt")], 1));
+    await waitFor(() => expect(result.current.state).toMatchObject({ filename: "a.txt", status: "sending" }));
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "file_upload_start")).toHaveLength(1);
+
+    act(() => result.current.handleEvent({ command: "file_send_complete", operation_id: operationId, success: false, message: "Peer rejected file." }));
+    await waitFor(() => expect(result.current.state).toMatchObject({ filename: "b.txt", status: "sending" }));
+    act(() => result.current.handleEvent({ command: "file_send_complete", operation_id: "22222222-2222-4222-8222-222222222222", success: true }));
+
+    expect(result.current.batch).toMatchObject({ total: 2, completed: 2, sent: 1, failed: 1, skipped: 1, active: false });
+    expect(result.current.batch.message).toContain("Sent 1 of 2 files. 1 failed. Skipped 1 non-file item.");
+  });
+
+  it("continues past an oversized item and reports the failure", async () => {
+    const oversized = { name: "oversized.bin", size: maxUploadBytes + 1 } as File;
+    const { result } = renderHook(() => useFileTransfer());
+    act(() => result.current.sendFiles([oversized, new File(["ok"], "ok.txt")]));
+    await waitFor(() => expect(result.current.state).toMatchObject({ filename: "ok.txt", status: "sending" }));
+    act(() => result.current.handleEvent({ command: "file_send_complete", operation_id: operationId, success: true }));
+    expect(result.current.batch).toMatchObject({ sent: 1, failed: 1, completed: 2, active: false });
+  });
+
+  it("cancels the active upload and drops remaining queued files", async () => {
+    const { result } = renderHook(() => useFileTransfer());
+    act(() => result.current.sendFiles([new File(["a"], "a.txt"), new File(["b"], "b.txt")]));
+    await waitFor(() => expect(result.current.state.filename).toBe("a.txt"));
+    act(() => result.current.cancelBatch());
+    expect(result.current.batch).toMatchObject({ active: false, pending: 0 });
+    expect(result.current.batch.message).toContain("1 queued files dropped");
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "file_upload_start")).toHaveLength(1);
+  });
+
+  it("cancelling after finish keeps the accepted file but drops queued items", async () => {
+    const { result } = renderHook(() => useFileTransfer());
+    act(() => result.current.sendFiles([new File(["a"], "a.txt"), new File(["b"], "b.txt")]));
+    await waitFor(() => expect(result.current.state.status).toBe("sending"));
+    const calls = vi.mocked(fetch).mock.calls.length;
+    act(() => result.current.cancelBatch());
+    expect(fetch).toHaveBeenCalledTimes(calls);
+    expect(result.current.batch.message).toContain("1 queued files dropped");
+    act(() => result.current.sendFiles([new File(["c"], "c.txt")]));
+    expect(result.current.state.message).toContain("Wait for the current send");
+    expect(fetch).toHaveBeenCalledTimes(calls);
+    act(() => result.current.handleEvent({ command: "file_send_complete", operation_id: operationId, success: true }));
+    expect(result.current.batch.sent).toBe(1);
+    expect(fetch).toHaveBeenCalledTimes(calls);
+  });
+
+  it("drops queued files on disconnect while preserving an accepted send", async () => {
+    const { result } = renderHook(() => useFileTransfer());
+    act(() => result.current.sendFiles([new File(["a"], "a.txt"), new File(["b"], "b.txt")]));
+    await waitFor(() => expect(result.current.state.status).toBe("sending"));
+    act(() => result.current.handleDisconnect());
+    expect(result.current.batch).toMatchObject({ active: false, pending: 0 });
+    act(() => result.current.handleEvent({ command: "file_send_complete", operation_id: operationId, success: true }));
+    expect(result.current.batch.sent).toBe(1);
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "file_upload_start")).toHaveLength(1);
   });
 
   it("stops an upload after a daemon rejection", async () => {

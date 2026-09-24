@@ -696,12 +696,14 @@
 }
 
 .devices-view .file-drop-zone p,
-.devices-view .file-transfer-status p {
+.devices-view .file-transfer-status p,
+.devices-view .file-batch-status p {
   margin: 0;
   color: var(--color-text-muted);
   line-height: 1.45;
 }
 
+.devices-view .file-batch-status,
 .devices-view .file-transfer-status {
   display: grid;
   gap: 10px;
@@ -727,6 +729,7 @@
   accent-color: var(--color-accent);
 }
 
+.devices-view .file-batch-status .text-button,
 .devices-view .file-transfer-status .text-button {
   width: fit-content;
   padding: 0;
