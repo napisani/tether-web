@@ -3,6 +3,7 @@ import { ModalDialog } from "./ModalDialog";
 
 export function PairingProgress({ pairing, onReset }: { pairing: PairingState; onReset: () => void }) {
   const busy = pairing.phase === "pairing" || pairing.phase === "confirming";
+
   return (
     <div className={`pairing-progress ${pairing.phase}`} aria-live="polite">
       <span className={busy ? "spinner" : "progress-symbol"} aria-hidden="true">
@@ -51,11 +52,17 @@ export function ConfirmForgetDialog({ name, onCancel, onConfirm }: { name: strin
 function pairingTitle(pairing: PairingState): string {
   if (pairing.kind === "unpair") {
     if (pairing.phase === "complete") return "iPhone forgotten";
+
     if (pairing.phase === "error") return "Could not forget iPhone";
+
     return "Removing pairing";
   }
+
   if (pairing.phase === "complete") return "Pairing complete";
+
   if (pairing.phase === "error") return "Pairing did not complete";
+
   if (pairing.phase === "confirming") return "Waiting for confirmation";
+
   return "Pairing in progress";
 }

@@ -4,6 +4,7 @@ import { sendDaemonCommand } from "../../daemon/DaemonClient";
 import type { WifiPeer } from "./devicesState";
 
 const discoveryResultTimeoutMs = 8_000;
+
 const pairingResultTimeoutMs = 20_000;
 
 function failureMessage(error: unknown): string {
@@ -19,6 +20,7 @@ export function usePeerCommands(dispatch: Dispatch<AppAction>) {
       await sendDaemonCommand(command);
     } catch (error) {
       const message = failureMessage(error);
+
       if (onFailure) onFailure(message);
       else dispatch({ type: "peer-command-failed", message });
     }

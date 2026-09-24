@@ -3,7 +3,9 @@ import { sendDaemonCommand } from "../../daemon/DaemonClient";
 import type { DaemonEvent } from "../../protocol";
 
 const chunkBytes = 48 * 1024;
+
 const sendResultTimeoutMs = 60_000;
+
 export const maxUploadBytes = 256 * 1024 * 1024;
 
 type TransferStatus = "idle" | "uploading" | "sending" | "complete" | "cancelled" | "error";
@@ -41,8 +43,10 @@ export function useFileTransfer(): FileTransferActions {
   const fail = useCallback((operationId: string, message: string) => {
     stoppedOperations.current.add(operationId);
     cancellableOperations.current.delete(operationId);
+
     if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
     sendTimeout.current = undefined;
+
     if (operationRef.current === operationId) operationRef.current = undefined;
     setState((current) => current.operationId === operationId
       ? { ...current, status: "error", message }
@@ -51,19 +55,26 @@ export function useFileTransfer(): FileTransferActions {
 
   const handleEvent = useCallback((event: DaemonEvent) => {
     if (event.command !== "file_upload_started" && event.command !== "file_send_complete") return;
+
     if (!event.operation_id || event.operation_id !== operationRef.current) return;
+
     if (!event.success) {
       fail(event.operation_id, event.message || "The file could not be sent.");
+
       return;
     }
+
     if (event.command === "file_upload_started") {
       setState((current) => current.operationId === event.operation_id && current.status === "uploading"
         ? { ...current, message: undefined }
         : current);
+
       return;
     }
+
     stoppedOperations.current.delete(event.operation_id);
     cancellableOperations.current.delete(event.operation_id);
+
     if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
     sendTimeout.current = undefined;
     operationRef.current = undefined;
@@ -74,6 +85,7 @@ export function useFileTransfer(): FileTransferActions {
 
   const cancel = useCallback(() => {
     const operationId = operationRef.current;
+
     if (!operationId || !cancellableOperations.current.has(operationId)) return;
     stoppedOperations.current.add(operationId);
     cancellableOperations.current.delete(operationId);
@@ -86,6 +98,7 @@ export function useFileTransfer(): FileTransferActions {
 
   const sendFile = useCallback(async (file: File) => {
     if (operationRef.current) return;
+
     if (file.size > maxUploadBytes) {
       setState({
         filename: file.name,
@@ -94,6 +107,7 @@ export function useFileTransfer(): FileTransferActions {
         status: "error",
         message: "Choose a file no larger than 256 MiB.",
       });
+
       return;
     }
 
@@ -110,6 +124,7 @@ export function useFileTransfer(): FileTransferActions {
         filename: file.name,
         size: file.size,
       });
+
       for (let offset = 0, chunkIndex = 0; offset < file.size; offset += chunkBytes, chunkIndex += 1) {
         if (stoppedOperations.current.has(operationId)) return;
         const end = Math.min(offset + chunkBytes, file.size);
@@ -124,6 +139,7 @@ export function useFileTransfer(): FileTransferActions {
           ? { ...current, sentBytes: end }
           : current);
       }
+
       if (stoppedOperations.current.has(operationId)) return;
       cancellableOperations.current.delete(operationId);
       setState((current) => current.operationId === operationId
@@ -136,12 +152,15 @@ export function useFileTransfer(): FileTransferActions {
       await sendDaemonCommand({ command: "file_upload_finish", operation_id: operationId });
     } catch (error) {
       if (stoppedOperations.current.has(operationId)) return;
+
       if (!cancellableOperations.current.has(operationId)) {
         setState((current) => current.operationId === operationId
           ? { ...current, message: "The finish request was interrupted; waiting for tetherd’s result…" }
           : current);
+
         return;
       }
+
       const message = error instanceof Error ? error.message : "The file upload failed.";
       fail(operationId, message);
       void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
@@ -150,13 +169,17 @@ export function useFileTransfer(): FileTransferActions {
 
   const handleDisconnect = useCallback(() => {
     const operationId = operationRef.current;
+
     if (!operationId) return;
+
     if (!cancellableOperations.current.has(operationId)) {
       setState((current) => current.operationId === operationId
         ? { ...current, message: "Reconnecting while the other device receives the file…" }
         : current);
+
       return;
     }
+
     stoppedOperations.current.add(operationId);
     cancellableOperations.current.delete(operationId);
     operationRef.current = undefined;
@@ -168,12 +191,14 @@ export function useFileTransfer(): FileTransferActions {
 
   useEffect(() => () => {
     const operationId = operationRef.current;
+
     if (operationId && cancellableOperations.current.has(operationId)) {
       stoppedOperations.current.add(operationId);
       cancellableOperations.current.delete(operationId);
       operationRef.current = undefined;
       void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId });
     }
+
     if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
   }, []);
 
@@ -184,7 +209,14 @@ function readBlob(blob: Blob): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error ?? new Error("Could not read the selected file."));
-    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+      } else {
+        reject(new Error("FileReader returned text instead of bytes."));
+      }
+    };
+
     reader.readAsArrayBuffer(blob);
   });
 }
@@ -192,6 +224,8 @@ function readBlob(blob: Blob): Promise<ArrayBuffer> {
 export function encodeBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
+
   for (const byte of bytes) binary += String.fromCharCode(byte);
+
   return btoa(binary);
 }

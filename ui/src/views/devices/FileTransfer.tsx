@@ -7,14 +7,17 @@ export function FileTransfer({ available, actions }: { available: boolean; actio
   const [dragging, setDragging] = useState(false);
   const busy = actions.state.status === "uploading" || actions.state.status === "sending";
   const cancellable = actions.state.status === "uploading";
+
   const progress = actions.state.totalBytes > 0
     ? Math.round((actions.state.sentBytes / actions.state.totalBytes) * 100)
     : busy ? 0 : 100;
 
   const choose = (file?: File) => {
     setDragging(false);
+
     if (file && available && !busy) void actions.sendFile(file);
   };
+
   const drop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     choose(event.dataTransfer.files[0]);
@@ -31,7 +34,9 @@ export function FileTransfer({ available, actions }: { available: boolean; actio
         onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
         onDragOver={(event) => event.preventDefault()}
         onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+          const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+
+          if (!event.currentTarget.contains(relatedTarget)) setDragging(false);
         }}
         onDrop={drop}
       >

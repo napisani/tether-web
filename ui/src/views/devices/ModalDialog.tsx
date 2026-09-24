@@ -25,6 +25,7 @@ export function ModalDialog({
     const dialog = dialogRef.current;
     const first = dialog?.querySelector<HTMLElement>(focusableSelector);
     (first || dialog)?.focus();
+
     return () => previous?.focus();
   }, []);
 
@@ -32,19 +33,24 @@ export function ModalDialog({
     if (event.key === "Escape") {
       event.preventDefault();
       onCancel();
+
       return;
     }
+
     if (event.key !== "Tab") return;
 
     const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector) || [])];
+
     if (controls.length === 0) {
       event.preventDefault();
       dialogRef.current?.focus();
+
       return;
     }
 
     const first = controls[0];
     const last = controls.at(-1)!;
+
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();

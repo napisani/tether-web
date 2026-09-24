@@ -89,10 +89,15 @@ Numeric Bluetooth comparison always requires explicit user confirmation. The bro
 ## Development
 
 ```bash
-make check       # Go vet/race tests, UI tests, and production build
+make check       # Oxlint, Go vet/race tests, UI tests, and production build
+make lint        # Oxlint with complexity, React, JSX-a11y, Vitest, and anti-slop rules
 make test-e2e    # desktop and mobile browser flows
 make docker      # standalone container image
 ```
+
+The UI vendors the generic rules from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) at `ui/tools/oxlint/anti-slop/`. The Effect-specific rules are intentionally not enabled because this project does not use Effect. Boundary parser modules have documented Oxlint overrides where runtime narrowing is the validation mechanism.
+
+Runtime protocol validation is centralized in `ui/src/protocolSchemas.ts` using Zod. It validates daemon SSE events and outgoing commands; the Go gateway remains responsible for its own HTTP/Unix-socket JSON framing.
 
 The gateway intentionally treats daemon JSON as transport data. New features should use commands and events from the upstream [`zackb/tether`](https://github.com/zackb/tether) daemon rather than feature-specific Go HTTP routes. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

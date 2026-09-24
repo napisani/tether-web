@@ -1,5 +1,6 @@
 import type {
   AirPodsEvent,
+  AirPodsResultEvent,
   BluetoothConnectionEvent,
   BluetoothDevice,
   BluetoothStatusEvent,
@@ -7,6 +8,7 @@ import type {
   DiscoveredPeer,
   StateSnapshotEvent,
 } from "../../protocol";
+import { airPodsEventSchema } from "../../protocolSchemas";
 
 export type PairingPhase = "idle" | "pairing" | "confirming" | "complete" | "error";
 
@@ -132,7 +134,8 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         },
       };
     case "pair-confirmation-sent":
-      if (state.pairing.operationId !== action.operationId || state.pairing.phase !== "confirming") return state;
+      if (!isPairConfirmationActive(state.pairing, action.operationId)) return state;
+
       return {
         ...state,
         pairing: {
@@ -143,54 +146,17 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         },
       };
     case "operation-failed":
-      if (
-        state.pairing.operationId !== action.operationId
-        || (state.pairing.phase !== "pairing" && state.pairing.phase !== "confirming")
-      ) return state;
+      if (!belongsToActivePairing(state.pairing, action.operationId)) return state;
+
       return {
         ...state,
         pairing: { ...state.pairing, phase: "error", code: undefined, detail: undefined, message: action.message },
       };
     case "scan-failed":
       return { ...state, scanning: false, scanMessage: action.message };
-    case "daemon-disconnected": {
-      const operationInProgress = state.pairing.phase === "pairing" || state.pairing.phase === "confirming";
-      return {
-        ...state,
-        scanning: false,
-        scanMessage: state.scanning ? "Bluetooth scan stopped while Tether reconnects." : state.scanMessage,
-        airpodsConnectingAddress: undefined,
-        airpodsConnectingToken: undefined,
-        airpodsMessage: state.airpodsConnectingAddress
-          ? { address: state.airpodsConnectingAddress, text: "Connection to tetherd was lost. Try again after it reconnects." }
-          : state.airpodsMessage,
-        bluetoothEnabledTarget: undefined,
-        bluetoothEnabledToken: undefined,
-        bluetoothSolicitToken: undefined,
-        bluetoothMessage: state.bluetoothEnabledToken || state.bluetoothSolicitToken
-          ? "Bluetooth operation stopped while Tether reconnects."
-          : state.bluetoothMessage,
-        wifi: {
-          ...state.wifi,
-          discovering: false,
-          discoveryToken: undefined,
-          pairingFingerprint: undefined,
-          pairingToken: undefined,
-          message: state.wifi.discovering || state.wifi.pairingFingerprint
-            ? "Wi-Fi operation stopped while Tether reconnects."
-            : state.wifi.message,
-        },
-        pairing: operationInProgress
-          ? {
-              ...state.pairing,
-              phase: "error",
-              code: undefined,
-              detail: undefined,
-              message: "Connection to tetherd was lost. Try again after it reconnects.",
-            }
-          : state.pairing,
-      };
-    }
+    case "daemon-disconnected":
+      return handleDaemonDisconnected(state);
+
     case "pair-reset":
       return { ...state, pairing: { phase: "idle" } };
     case "airpods-connect-started":
@@ -202,6 +168,7 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
       };
     case "airpods-connect-timeout":
       if (state.airpodsConnectingAddress !== action.address || state.airpodsConnectingToken !== action.token) return state;
+
       return {
         ...state,
         airpodsConnectingAddress: undefined,
@@ -224,6 +191,7 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
       };
     case "bluetooth-enabled-failed":
       if (state.bluetoothEnabledToken !== action.token) return state;
+
       return {
         ...state,
         bluetoothEnabledTarget: undefined,
@@ -232,6 +200,7 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
       };
     case "bluetooth-enabled-timeout":
       if (state.bluetoothEnabledToken !== action.token) return state;
+
       return {
         ...state,
         bluetoothEnabledTarget: undefined,
@@ -242,9 +211,11 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
       return { ...state, bluetoothSolicitToken: action.token, bluetoothMessage: "Asking the iPhone to show its permissions…" };
     case "bluetooth-solicit-failed":
       if (state.bluetoothSolicitToken !== action.token) return state;
+
       return { ...state, bluetoothSolicitToken: undefined, bluetoothMessage: action.message };
     case "bluetooth-solicit-timeout":
       if (state.bluetoothSolicitToken !== action.token) return state;
+
       return {
         ...state,
         bluetoothSolicitToken: undefined,
@@ -257,12 +228,14 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
       };
     case "peer-discovery-failed":
       if (state.wifi.discoveryToken !== action.token) return state;
+
       return {
         ...state,
         wifi: { ...state.wifi, discovering: false, discoveryToken: undefined, message: action.message },
       };
     case "peer-discovery-timeout":
       if (state.wifi.discoveryToken !== action.token) return state;
+
       return {
         ...state,
         wifi: {
@@ -284,12 +257,14 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
       };
     case "peer-pair-failed":
       if (state.wifi.pairingFingerprint !== action.fingerprint || state.wifi.pairingToken !== action.token) return state;
+
       return {
         ...state,
         wifi: { ...state.wifi, pairingFingerprint: undefined, pairingToken: undefined, message: action.message },
       };
     case "peer-pair-timeout":
       if (state.wifi.pairingFingerprint !== action.fingerprint || state.wifi.pairingToken !== action.token) return state;
+
       return {
         ...state,
         wifi: {
@@ -311,16 +286,7 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
     case "mdns_status":
       return { ...state, wifi: { ...state.wifi, mdnsAvailable: event.available } };
     case "discovery_result":
-      return {
-        ...state,
-        wifi: {
-          ...state.wifi,
-          peers: mergeDiscoveredPeers(state.wifi.peers, event.devices),
-          discovering: false,
-          discoveryToken: undefined,
-          message: event.devices.length === 0 ? "No nearby Wi-Fi devices found." : `Found ${event.devices.length} nearby device${event.devices.length === 1 ? "" : "s"}.`,
-        },
-      };
+      return handleDiscoveryResult(state, event);
     case "client_connected":
       return { ...state, wifi: { ...state.wifi, peers: updatePeerConnection(state.wifi.peers, event, true) } };
     case "client_disconnected":
@@ -330,91 +296,43 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
     case "untrusted_client_connected":
       return { ...state, wifi: { ...state.wifi, peers: upsertPendingPeer(state.wifi.peers, event, true) } };
     case "pair_outbound_pending":
-      if (!state.wifi.pairingFingerprint || event.fingerprint !== state.wifi.pairingFingerprint) return state;
-      return { ...state, wifi: { ...state.wifi, message: `Waiting for approval on ${event.device_name || "the other device"}…` } };
+      return handlePairOutboundPending(state, event);
     case "pair_rejected":
-      if (!belongsToActivePeerPair(state.wifi, event)) return state;
-      return {
-        ...state,
-        wifi: {
-          ...state.wifi,
-          pairingFingerprint: undefined,
-          pairingToken: undefined,
-          message: peerRejectionMessage(event.reason),
-        },
-      };
+      return handlePairRejected(state, event);
     case "pair_accepted":
-      return {
-        ...state,
-        wifi: {
-          ...state.wifi,
-          peers: acceptPeer(state.wifi.peers, event.fingerprint, event.connected),
-          pairingFingerprint: state.wifi.pairingFingerprint === event.fingerprint
-            ? undefined
-            : state.wifi.pairingFingerprint,
-          pairingToken: state.wifi.pairingFingerprint === event.fingerprint
-            ? undefined
-            : state.wifi.pairingToken,
-          message: "Device paired.",
-        },
-      };
+      return handlePairAccepted(state, event);
     case "forget_device_result":
-      return {
-        ...state,
-        wifi: {
-          ...state.wifi,
-          peers: event.forgotten ? forgetPeer(state.wifi.peers, event.fingerprint) : state.wifi.peers,
-          message: event.forgotten ? "Device forgotten." : "Could not forget the device.",
-        },
-      };
-    case "bt_status": {
-      const completed = state.bluetoothEnabledToken && event.enabled === state.bluetoothEnabledTarget;
-      return {
-        ...state,
-        bluetooth: event as BluetoothStatusEvent,
-        bluetoothEnabledTarget: completed ? undefined : state.bluetoothEnabledTarget,
-        bluetoothEnabledToken: completed ? undefined : state.bluetoothEnabledToken,
-        bluetoothMessage: completed ? "Bluetooth connection preference updated." : state.bluetoothMessage,
-      };
-    }
-    case "bt_devices": {
-      const configuredAddress = state.bluetooth?.device_address?.toUpperCase();
-      const visible = event.devices.filter((device) =>
-        device.iphone || device.apple_nearby || device.airpods ||
-        (configuredAddress !== undefined && device.address.toUpperCase() === configuredAddress));
-      const remembered = state.devices.filter(isAnonymousCandidate);
-      return { ...state, devices: mergeDevices(remembered, visible) };
-    }
+      return handleForgetDeviceResult(state, event);
+    case "bt_status":
+      return handleBluetoothStatus(state, event);
+
+    case "bt_devices":
+      return handleBluetoothDevices(state, event);
+
     case "bt_connection_changed":
-      return { ...state, connection: event as BluetoothConnectionEvent };
-    case "bt_airpods":
-      if (!isAirPodsEvent(event)) return state;
-      return { ...state, airpods: event, airpodsMessage: undefined };
-    case "bt_airpods_connect_result": {
-      const address = state.airpodsConnectingAddress;
-      return {
-        ...state,
-        airpodsConnectingAddress: undefined,
-        airpodsConnectingToken: undefined,
-        airpodsMessage: event.success
-          ? undefined
-          : { address, text: event.message || "Could not change the AirPods connection." },
-      };
+      return { ...state, connection: event };
+    case "bt_airpods": {
+      const parsed = airPodsEventSchema.safeParse(event);
+
+      if (!parsed.success) return state;
+
+      return { ...state, airpods: parsed.data, airpodsMessage: undefined };
     }
+
+    case "bt_airpods_connect_result":
+      return handleAirPodsConnectionResult(state, event);
+
     case "bt_airpods_mode_result":
-      return {
-        ...state,
-        airpodsMessage: event.success
-          ? undefined
-          : { address: state.airpods?.address, text: event.message || "Could not change the listening mode." },
-      };
+      return handleAirPodsModeResult(state, event);
     case "bt_scan_result":
       return { ...state, scanning: false, scanMessage: event.message };
     case "bt_solicit_result":
       if (!state.bluetoothSolicitToken) return state;
+
       return { ...state, bluetoothSolicitToken: undefined, bluetoothMessage: event.message };
     case "bt_pair_progress":
       if (!belongsToActivePairing(state.pairing, event.operation_id)) return state;
+
       return {
         ...state,
         pairing: {
@@ -427,6 +345,7 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
       };
     case "bt_pair_confirm_request":
       if (!belongsToActivePairing(state.pairing, event.operation_id)) return state;
+
       return {
         ...state,
         pairing: {
@@ -439,6 +358,7 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
     case "bt_pair_result":
     case "bt_unpair_result":
       if (!belongsToActivePairing(state.pairing, event.operation_id)) return state;
+
       return {
         ...state,
         pairing: {
@@ -454,37 +374,191 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
   }
 }
 
+function handleDiscoveryResult(state: DevicesState, event: Extract<DaemonEvent, { command: "discovery_result" }>): DevicesState {
+  const message = event.devices.length === 0
+    ? "No nearby Wi-Fi devices found."
+    : `Found ${event.devices.length} nearby device${event.devices.length === 1 ? "" : "s"}.`;
+
+  return {
+    ...state,
+    wifi: { ...state.wifi, peers: mergeDiscoveredPeers(state.wifi.peers, event.devices), discovering: false, discoveryToken: undefined, message },
+  };
+}
+
+function handlePairOutboundPending(state: DevicesState, event: Extract<DaemonEvent, { command: "pair_outbound_pending" }>): DevicesState {
+  if (!state.wifi.pairingFingerprint || event.fingerprint !== state.wifi.pairingFingerprint) return state;
+
+  return { ...state, wifi: { ...state.wifi, message: `Waiting for approval on ${event.device_name || "the other device"}…` } };
+}
+
+function handlePairRejected(state: DevicesState, event: Extract<DaemonEvent, { command: "pair_rejected" }>): DevicesState {
+  if (!belongsToActivePeerPair(state.wifi, event)) return state;
+
+  return { ...state, wifi: { ...state.wifi, pairingFingerprint: undefined, pairingToken: undefined, message: peerRejectionMessage(event.reason) } };
+}
+
+function handlePairAccepted(state: DevicesState, event: Extract<DaemonEvent, { command: "pair_accepted" }>): DevicesState {
+  const accepted = state.wifi.pairingFingerprint === event.fingerprint;
+
+  return {
+    ...state,
+    wifi: {
+      ...state.wifi,
+      peers: acceptPeer(state.wifi.peers, event.fingerprint, event.connected),
+      pairingFingerprint: accepted ? undefined : state.wifi.pairingFingerprint,
+      pairingToken: accepted ? undefined : state.wifi.pairingToken,
+      message: "Device paired.",
+    },
+  };
+}
+
+function handleForgetDeviceResult(state: DevicesState, event: Extract<DaemonEvent, { command: "forget_device_result" }>): DevicesState {
+  return {
+    ...state,
+    wifi: {
+      ...state.wifi,
+      peers: event.forgotten ? forgetPeer(state.wifi.peers, event.fingerprint) : state.wifi.peers,
+      message: event.forgotten ? "Device forgotten." : "Could not forget the device.",
+    },
+  };
+}
+
+function handleBluetoothStatus(state: DevicesState, event: Extract<DaemonEvent, { command: "bt_status" }>): DevicesState {
+  const completed = state.bluetoothEnabledToken && event.enabled === state.bluetoothEnabledTarget;
+
+  return {
+    ...state,
+    bluetooth: event,
+    bluetoothEnabledTarget: completed ? undefined : state.bluetoothEnabledTarget,
+    bluetoothEnabledToken: completed ? undefined : state.bluetoothEnabledToken,
+    bluetoothMessage: completed ? "Bluetooth connection preference updated." : state.bluetoothMessage,
+  };
+}
+
+function handleBluetoothDevices(state: DevicesState, event: Extract<DaemonEvent, { command: "bt_devices" }>): DevicesState {
+  const configuredAddress = state.bluetooth?.device_address?.toUpperCase();
+  const visible = event.devices.filter((device) => isVisibleBluetoothDevice(device, configuredAddress));
+
+  return { ...state, devices: mergeDevices(state.devices.filter(isAnonymousCandidate), visible) };
+}
+
+function isVisibleBluetoothDevice(device: BluetoothDevice, configuredAddress?: string): boolean {
+  return device.iphone || device.apple_nearby || device.airpods ||
+    (configuredAddress !== undefined && device.address.toUpperCase() === configuredAddress);
+}
+
+function handleAirPodsConnectionResult(state: DevicesState, event: AirPodsResultEvent): DevicesState {
+  const airpodsMessage = event.success ? undefined : {
+    address: state.airpodsConnectingAddress,
+    text: event.message || "Could not change the AirPods connection.",
+  };
+
+  return { ...state, airpodsConnectingAddress: undefined, airpodsConnectingToken: undefined, airpodsMessage };
+}
+
+function handleAirPodsModeResult(state: DevicesState, event: AirPodsResultEvent): DevicesState {
+  const airpodsMessage = event.success ? undefined : {
+    address: state.airpods?.address,
+    text: event.message || "Could not change the listening mode.",
+  };
+
+  return { ...state, airpodsMessage };
+}
+
+function handleDaemonDisconnected(state: DevicesState): DevicesState {
+  const pairingActive = state.pairing.phase === "pairing" || state.pairing.phase === "confirming";
+  const bluetoothBusy = state.bluetoothEnabledToken || state.bluetoothSolicitToken;
+  const wifiBusy = state.wifi.discovering || state.wifi.pairingFingerprint;
+
+  return {
+    ...state,
+    scanning: false,
+    scanMessage: state.scanning ? "Bluetooth scan stopped while Tether reconnects." : state.scanMessage,
+    airpodsConnectingAddress: undefined,
+    airpodsConnectingToken: undefined,
+    airpodsMessage: state.airpodsConnectingAddress
+      ? { address: state.airpodsConnectingAddress, text: "Connection to tetherd was lost. Try again after it reconnects." }
+      : state.airpodsMessage,
+    bluetoothEnabledTarget: undefined,
+    bluetoothEnabledToken: undefined,
+    bluetoothSolicitToken: undefined,
+    bluetoothMessage: bluetoothBusy ? "Bluetooth operation stopped while Tether reconnects." : state.bluetoothMessage,
+    wifi: {
+      ...state.wifi,
+      discovering: false,
+      discoveryToken: undefined,
+      pairingFingerprint: undefined,
+      pairingToken: undefined,
+      message: wifiBusy ? "Wi-Fi operation stopped while Tether reconnects." : state.wifi.message,
+    },
+    pairing: pairingActive ? disconnectedPairing(state.pairing) : state.pairing,
+  };
+}
+
+function disconnectedPairing(pairing: PairingState): PairingState {
+  return {
+    ...pairing,
+    phase: "error",
+    code: undefined,
+    detail: undefined,
+    message: "Connection to tetherd was lost. Try again after it reconnects.",
+  };
+}
+
 function isAnonymousCandidate(device: BluetoothDevice): boolean {
   return Boolean(device.apple_nearby && !device.paired && !device.bonded);
 }
 
 function mergeDevices(...groups: BluetoothDevice[][]): BluetoothDevice[] {
   const devices = new Map<string, BluetoothDevice>();
+
   for (const group of groups) {
     for (const device of group) devices.set(device.address, device);
   }
+
   return [...devices.values()];
+}
+
+function isPairConfirmationActive(pairing: PairingState, operationId: string): boolean {
+  return pairing.phase === "confirming" && pairing.operationId === operationId;
 }
 
 function belongsToActivePairing(pairing: PairingState, operationId?: string): boolean {
   const active = pairing.phase === "pairing" || pairing.phase === "confirming";
+
   return Boolean(active && operationId && pairing.operationId && operationId === pairing.operationId);
 }
 
 function wifiFromSnapshot(event: StateSnapshotEvent): WifiState {
   const peers = new Map<string, WifiPeer>();
-  for (const peer of event.paired_devices || []) {
-    peers.set(peer.fingerprint, {
-      fingerprint: peer.fingerprint,
-      name: peer.device_name || "Unknown Device",
-      port: 5134,
-      paired: true,
-      connected: false,
-      pending: false,
-    });
-  }
-  for (const peer of event.discovered_devices || []) mergeDiscoveredPeer(peers, peer);
-  for (const client of event.connected_clients || []) {
+
+  addPairedPeers(peers, event.paired_devices);
+  event.discovered_devices?.forEach((peer) => mergeDiscoveredPeer(peers, peer));
+  addConnectedPeers(peers, event.connected_clients);
+  addPendingPeers(peers, event.pending_pairs);
+
+  return {
+    peers: sortPeers([...peers.values()]),
+    mdnsAvailable: event.mdns_available ?? true,
+    clipboardAvailable: event.clipboard_available ?? true,
+    firewallActive: event.firewall_active ?? false,
+    discovering: false,
+  };
+}
+
+function addPairedPeers(peers: Map<string, WifiPeer>, pairedPeers?: StateSnapshotEvent["paired_devices"]): void {
+  pairedPeers?.forEach((peer) => peers.set(peer.fingerprint, {
+    fingerprint: peer.fingerprint,
+    name: peer.device_name || "Unknown Device",
+    port: 5134,
+    paired: true,
+    connected: false,
+    pending: false,
+  }));
+}
+
+function addConnectedPeers(peers: Map<string, WifiPeer>, clients?: StateSnapshotEvent["connected_clients"]): void {
+  clients?.forEach((client) => {
     const existing = peers.get(client.fingerprint);
     peers.set(client.fingerprint, {
       fingerprint: client.fingerprint,
@@ -495,8 +569,11 @@ function wifiFromSnapshot(event: StateSnapshotEvent): WifiState {
       connected: true,
       pending: !client.paired,
     });
-  }
-  for (const pending of event.pending_pairs || []) {
+  });
+}
+
+function addPendingPeers(peers: Map<string, WifiPeer>, pendingPeers?: StateSnapshotEvent["pending_pairs"]): void {
+  pendingPeers?.forEach((pending) => {
     const existing = peers.get(pending.fingerprint);
     peers.set(pending.fingerprint, {
       fingerprint: pending.fingerprint,
@@ -507,14 +584,7 @@ function wifiFromSnapshot(event: StateSnapshotEvent): WifiState {
       connected: existing?.connected || false,
       pending: true,
     });
-  }
-  return {
-    peers: sortPeers([...peers.values()]),
-    mdnsAvailable: event.mdns_available ?? true,
-    clipboardAvailable: event.clipboard_available ?? true,
-    firewallActive: event.firewall_active ?? false,
-    discovering: false,
-  };
+  });
 }
 
 function mergeDiscoveredPeer(peers: Map<string, WifiPeer>, discovered: DiscoveredPeer) {
@@ -534,7 +604,9 @@ function mergeDiscoveredPeer(peers: Map<string, WifiPeer>, discovered: Discovere
 function mergeDiscoveredPeers(current: WifiPeer[], discovered: DiscoveredPeer[]): WifiPeer[] {
   const durable = current.filter((peer) => peer.paired || peer.connected || peer.pending);
   const peers = new Map(durable.map((peer) => [peer.fingerprint, peer]));
+
   for (const peer of discovered) mergeDiscoveredPeer(peers, peer);
+
   return sortPeers([...peers.values()]);
 }
 
@@ -545,6 +617,7 @@ function updatePeerConnection(
 ): WifiPeer[] {
   if (!event.fingerprint) return peers;
   const existing = peers.find((peer) => peer.fingerprint === event.fingerprint);
+
   const updated: WifiPeer = {
     fingerprint: event.fingerprint,
     name: event.device_name || existing?.name || "Unknown Device",
@@ -554,6 +627,7 @@ function updatePeerConnection(
     connected,
     pending: connected && !(event.paired ?? existing?.paired ?? false),
   };
+
   return sortPeers([...peers.filter((peer) => peer.fingerprint !== event.fingerprint), updated]);
 }
 
@@ -564,6 +638,7 @@ function upsertPendingPeer(
 ): WifiPeer[] {
   if (!event.fingerprint) return peers;
   const existing = peers.find((peer) => peer.fingerprint === event.fingerprint);
+
   const updated: WifiPeer = {
     fingerprint: event.fingerprint,
     name: event.device_name || existing?.name || "Unknown Device",
@@ -573,6 +648,7 @@ function upsertPendingPeer(
     connected: connected || existing?.connected || false,
     pending: true,
   };
+
   return sortPeers([...peers.filter((peer) => peer.fingerprint !== event.fingerprint), updated]);
 }
 
@@ -598,8 +674,10 @@ function belongsToActivePeerPair(
   event: { fingerprint: string; address?: string },
 ): boolean {
   if (!wifi.pairingFingerprint) return false;
+
   if (event.fingerprint) return event.fingerprint === wifi.pairingFingerprint;
   const activePeer = wifi.peers.find((peer) => peer.fingerprint === wifi.pairingFingerprint);
+
   return Boolean(event.address && activePeer?.address === event.address);
 }
 
@@ -611,12 +689,4 @@ function peerRejectionMessage(reason?: string): string {
     case "failed": return "Could not connect to that device.";
     default: return "Pair request was rejected.";
   }
-}
-
-function isAirPodsEvent(event: DaemonEvent): event is AirPodsEvent {
-  if (event.command !== "bt_airpods" || typeof event.address !== "string" || typeof event.name !== "string") return false;
-  if (typeof event.left !== "number" || typeof event.right !== "number" || typeof event.case !== "number") return false;
-  if (!event.ear || typeof event.ear !== "object") return false;
-  const ear = event.ear as Record<string, unknown>;
-  return typeof ear.primary === "string" && typeof ear.secondary === "string" && typeof event.in_ear === "number";
 }

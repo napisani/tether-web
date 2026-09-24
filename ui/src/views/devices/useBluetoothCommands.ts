@@ -3,16 +3,21 @@ import { DaemonCommandTimeoutError, sendDaemonCommand } from "../../daemon/Daemo
 import type { DevicesAction, PairingState } from "./devicesState";
 
 const settingTimeoutMs = 15_000;
+
 const solicitationTimeoutMs = 60_000;
+
 const pairResultTimeoutMs = 5 * 60_000;
+
 const unpairResultTimeoutMs = 30_000;
 
 export function useBluetoothCommands(pairing: PairingState, dispatch: Dispatch<DevicesAction>) {
   const operationId = pairing.operationId;
   useEffect(() => {
     const active = pairing.phase === "pairing" || pairing.phase === "confirming";
+
     if (!active || !operationId) return;
     const timeout = pairing.kind === "unpair" ? unpairResultTimeoutMs : pairResultTimeoutMs;
+
     const timer = window.setTimeout(() => dispatch({
       type: "operation-failed",
       operationId,
@@ -20,8 +25,10 @@ export function useBluetoothCommands(pairing: PairingState, dispatch: Dispatch<D
         ? "Timed out waiting for tetherd to remove the Bluetooth pairing."
         : "Timed out waiting for tetherd to finish Bluetooth pairing.",
     }), timeout);
+
     return () => window.clearTimeout(timer);
   }, [dispatch, operationId, pairing.kind, pairing.phase]);
+
   const scan = useCallback(() => {
     dispatch({ type: "scan-started" });
     void sendDaemonCommand({ command: "bt_scan" }).catch((error: unknown) =>

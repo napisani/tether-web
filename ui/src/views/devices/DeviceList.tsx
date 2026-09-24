@@ -36,6 +36,7 @@ export function DeviceList({
   const bluetoothScanAvailable = pairingAvailable && bluetoothAvailable;
   const scanDisabled = scanning || discovering || (!bluetoothScanAvailable && !peerDiscoveryAvailable);
   const empty = devices.length === 0 && peers.length === 0;
+
   return (
     <aside className="device-list-pane">
       <div className="device-list-heading">

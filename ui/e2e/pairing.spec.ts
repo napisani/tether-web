@@ -156,6 +156,7 @@ test("keeps device controls and dialogs usable at the configured viewport", asyn
   expect(viewport).not.toBeNull();
   expect(list).not.toBeNull();
   expect(pane).not.toBeNull();
+
   if (viewport!.width <= 820) {
     expect(list!.y + list!.height).toBeLessThanOrEqual(pane!.y + 1);
   } else {

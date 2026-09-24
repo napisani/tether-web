@@ -1,4 +1,4 @@
-.PHONY: build check clean docker test test-e2e ui-deps
+.PHONY: build check clean docker lint test test-e2e ui-deps
 
 UI_DIR := ui
 BINARY := bin/tether-web
@@ -12,12 +12,15 @@ build: ui-deps
 	mkdir -p $(dir $(BINARY))
 	CGO_ENABLED=0 go build -trimpath -o $(BINARY) ./cmd/tether-web
 
-check: ui-deps
+check: ui-deps lint
 	test -z "$$(gofmt -l cmd internal)"
 	go vet ./...
 	go test -race ./...
 	cd $(UI_DIR) && npm test
 	cd $(UI_DIR) && npm run build
+
+lint: ui-deps
+	cd $(UI_DIR) && npm run lint
 
 test:
 	go test -race ./...

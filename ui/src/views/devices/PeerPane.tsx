@@ -10,10 +10,13 @@ function routeDetail(peer: WifiPeer, wifi: WifiState): string {
       ? "Clipboard, files, and one-time codes are connected."
       : "Files and one-time codes are connected. Browser clipboard access is permission-based.";
   }
+
   if (!wifi.mdnsAvailable) return "avahi-daemon is not running, so other devices cannot find this computer.";
+
   if (wifi.firewallActive && peer.address) {
     return "A device is nearby, but a firewall may be blocking inbound TCP 5134.";
   }
+
   return "No paired device is connected. Put both devices on the same network.";
 }
 
@@ -33,6 +36,7 @@ export function PeerPane({
   onForget: () => void;
 }) {
   const location = peer.address ? `${peer.address}:${peer.port}` : "Address unavailable";
+
   return (
     <div className="device-pane-content peer-pane">
       <div className="detail-heading">

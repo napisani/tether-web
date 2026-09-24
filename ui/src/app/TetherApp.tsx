@@ -12,6 +12,7 @@ import { initialAppState, reduceAppState } from "./appState";
 export function TetherApp() {
   const [state, dispatch] = useReducer(reduceAppState, initialAppState);
   const fileTransfer = useFileTransfer();
+
   const onConnectionChange = useCallback(
     (connected: boolean) => {
       if (!connected) fileTransfer.handleDisconnect();
@@ -19,10 +20,12 @@ export function TetherApp() {
     },
     [fileTransfer.handleDisconnect],
   );
+
   const onEvent = useCallback(
     (event: DaemonEvent) => {
       fileTransfer.handleEvent(event);
       dispatch({ type: "daemon-event", event });
+
       if (event.command === "bt_pair_result" || event.command === "bt_unpair_result") {
         void Promise.allSettled([
           sendDaemonCommand({ command: "bt_status" }),
@@ -32,6 +35,7 @@ export function TetherApp() {
     },
     [fileTransfer.handleEvent],
   );
+
   useDaemonClient({ onConnectionChange, onEvent });
 
   const actions = useBluetoothCommands(state.devices.pairing, dispatch);
@@ -45,6 +49,7 @@ export function TetherApp() {
 
   const bluetoothAvailable = state.devices.bluetooth?.available ?? false;
   const wifiConnected = state.devices.wifi.peers.some((peer) => peer.paired && peer.connected);
+
   const phoneConnected = Boolean(
     state.devices.connection?.classic_connected || state.devices.connection?.le_connected,
   );
@@ -63,6 +68,7 @@ export function TetherApp() {
         state={state.devices}
         onScan={() => {
           if (bluetoothPairingAvailable && bluetoothAvailable) actions.scan();
+
           if (peerDiscoveryAvailable) peerActions.discover();
         }}
         onPair={actions.pair}

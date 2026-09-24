@@ -28,6 +28,7 @@ describe("reduceDevicesEvent", () => {
       fingerprint: "pending",
       connected: true,
     });
+
     expect(accepted.wifi.peers.find((peer) => peer.fingerprint === "pending")).toMatchObject({
       paired: true,
       connected: true,
@@ -81,6 +82,7 @@ describe("reduceDevicesEvent", () => {
       clipboard_available: true,
       firewall_active: false,
     });
+
     const state = reduceDevicesEvent(trusted, {
       command: "untrusted_client_connected",
       fingerprint: "peer",
@@ -108,6 +110,7 @@ describe("reduceDevicesEvent", () => {
       fingerprint: "peer",
       token: "pair-1",
     });
+
     expect(started.wifi).toMatchObject({ pairingFingerprint: "peer", pairingToken: "pair-1" });
 
     const rejected = reduceDevicesEvent(started, {
@@ -116,6 +119,7 @@ describe("reduceDevicesEvent", () => {
       device_name: "Nearby phone",
       reason: "refused",
     });
+
     expect(rejected.wifi.pairingFingerprint).toBeUndefined();
     expect(rejected.wifi.pairingToken).toBeUndefined();
     expect(rejected.wifi.message).toContain("refused");
@@ -127,11 +131,13 @@ describe("reduceDevicesEvent", () => {
       fingerprint: "peer",
       token: "old",
     });
+
     const current = reduceDevicesState(first, {
       type: "peer-pair-started",
       fingerprint: "peer",
       token: "current",
     });
+
     const stale = reduceDevicesState(current, {
       type: "peer-pair-timeout",
       fingerprint: "peer",
@@ -234,17 +240,20 @@ describe("reduceDevicesEvent", () => {
       ...initialDevicesState,
       pairing: { phase: "complete" as const, operationId: "pair-1", message: "Paired." },
     };
+
     const delayedProgress = reduceDevicesEvent(completed, {
       command: "bt_pair_progress",
       operation_id: "pair-1",
       step: "pairing",
       detail: "Delayed progress.",
     });
+
     const delayedConfirmation = reduceDevicesEvent(completed, {
       command: "bt_pair_confirm_request",
       operation_id: "pair-1",
       code: "042731",
     });
+
     const delayedResult = reduceDevicesEvent(completed, {
       command: "bt_pair_result",
       operation_id: "pair-1",
@@ -264,11 +273,13 @@ describe("reduceDevicesEvent", () => {
       operationId: "current",
       address: "AA:BB",
     });
+
     const staleFailure = reduceDevicesState(active, {
       type: "operation-failed",
       operationId: "old",
       message: "Old failure.",
     });
+
     expect(staleFailure.pairing).toEqual(active.pairing);
 
     const failed = reduceDevicesState(staleFailure, {
@@ -276,23 +287,27 @@ describe("reduceDevicesEvent", () => {
       operationId: "current",
       message: "Current failure.",
     });
+
     expect(failed.pairing).toMatchObject({ phase: "error", operationId: "current", message: "Current failure." });
 
     const completed = {
       ...active,
       pairing: { ...active.pairing, phase: "complete" as const, message: "Paired." },
     };
+
     const lateFailure = reduceDevicesState(completed, {
       type: "operation-failed",
       operationId: "current",
       message: "Late transport failure.",
     });
+
     expect(lateFailure).toBe(completed);
 
     const confirming = {
       ...active,
       pairing: { ...active.pairing, phase: "confirming" as const, code: "042731" },
     };
+
     expect(reduceDevicesState(confirming, {
       type: "pair-confirmation-sent",
       operationId: "old",
@@ -309,6 +324,7 @@ describe("reduceDevicesEvent", () => {
       enabled: false,
       token: "setting-1",
     });
+
     const unchanged = reduceDevicesEvent(started, { command: "bt_status", available: true, enabled: true });
     expect(unchanged.bluetoothEnabledToken).toBe("setting-1");
 
@@ -317,6 +333,7 @@ describe("reduceDevicesEvent", () => {
       available: true,
       enabled: false,
     });
+
     expect(completed.bluetoothEnabledToken).toBeUndefined();
     expect(completed.bluetoothMessage).toBe("Bluetooth connection preference updated.");
   });
@@ -327,15 +344,19 @@ describe("reduceDevicesEvent", () => {
       enabled: false,
       token: "setting-current",
     });
+
     const staleSettingTimeout = reduceDevicesState(setting, {
       type: "bluetooth-enabled-timeout",
       token: "setting-old",
     });
+
     expect(staleSettingTimeout.bluetoothEnabledToken).toBe("setting-current");
+
     const settingTimedOut = reduceDevicesState(staleSettingTimeout, {
       type: "bluetooth-enabled-timeout",
       token: "setting-current",
     });
+
     expect(settingTimedOut.bluetoothEnabledToken).toBeUndefined();
     expect(settingTimedOut.bluetoothMessage).toContain("No updated Bluetooth status");
 
@@ -343,11 +364,13 @@ describe("reduceDevicesEvent", () => {
       type: "bluetooth-solicit-started",
       token: "solicit-current",
     });
+
     const failed = reduceDevicesState(solicitation, {
       type: "bluetooth-solicit-failed",
       token: "solicit-current",
       message: "Could not ask the iPhone for permissions.",
     });
+
     expect(failed.bluetoothSolicitToken).toBeUndefined();
     expect(failed.bluetoothMessage).toContain("Could not ask");
   });
@@ -358,6 +381,7 @@ describe("reduceDevicesEvent", () => {
       success: false,
       message: "No local request is waiting.",
     });
+
     expect(unsolicited).toBe(initialDevicesState);
 
     const pending = reduceDevicesState(initialDevicesState, { type: "bluetooth-solicit-started", token: "current" });
@@ -369,6 +393,7 @@ describe("reduceDevicesEvent", () => {
       success: true,
       message: "Asked the iPhone to re-offer notification access.",
     });
+
     expect(completed.bluetoothSolicitToken).toBeUndefined();
     expect(completed.bluetoothMessage).toContain("re-offer");
   });
@@ -433,11 +458,13 @@ describe("reduceDevicesEvent", () => {
       status: "live",
       reason: "",
     });
+
     const connecting = reduceDevicesState(state, {
       type: "airpods-connect-started",
       address: "AA:BB",
       token: "connect-1",
     });
+
     const disconnected = reduceDevicesState(connecting, { type: "daemon-disconnected" });
 
     expect(disconnected.airpods?.left).toBe(82);
@@ -451,6 +478,7 @@ describe("reduceDevicesEvent", () => {
       airpodsConnectingAddress: "AA:BB",
       airpodsConnectingToken: "connect-new",
     };
+
     const next = reduceDevicesState(active, {
       type: "airpods-connect-timeout",
       address: "AA:BB",

@@ -2,18 +2,28 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 
 const dist = fileURLToPath(new URL("../../cmd/tether-web/dist", import.meta.url));
+
 const clients = new Set();
+
 const timers = new Set();
+
 const history = [];
+
 let nextEventId = 0;
+
 let failNextCommand;
+
 let discoverablePeers = [];
+
 // The real gateway multiplexes every browser tab onto one owned tetherd socket,
 // so uploads are process-global here rather than owned by individual HTTP clients.
 const uploads = new Map();
+
 const maxUploadBytes = 256 * 1024 * 1024;
+
 const maxChunkBytes = 48 * 1024;
 
 const phone = {
@@ -147,6 +157,7 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   durable.bt_status = baseBluetoothStatus();
   setPhonePaired(paired);
   durable.state_snapshot = emptyStateSnapshot();
+
   if (bluetoothSetup && paired) {
     durable.bt_status.capability = {
       mode: "compatibility",
@@ -164,6 +175,7 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
       ancs_reason: "The iPhone has not granted notification access.",
     };
   }
+
   if (withPeer) {
     durable.state_snapshot.pending_pairs = [{ fingerprint: peer.fingerprint, device_name: peer.name }];
     durable.state_snapshot.connected_clients = [{
@@ -174,6 +186,7 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
     }];
     durable.state_snapshot.discovered_devices = [peer];
   }
+
   if (withAirPods) {
     airpods.connected = true;
     durable.bt_status = {
@@ -212,11 +225,13 @@ function later(callback, delay) {
     timers.delete(timer);
     callback();
   }, delay);
+
   timers.add(timer);
 }
 
 function frame(event, id) {
   const idLine = id ? `id: ${id}\n` : "";
+
   return `${idLine}data: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -224,231 +239,194 @@ function publish(event) {
   if (Object.hasOwn(durable, event.command)) durable[event.command] = event;
   const streamed = { id: ++nextEventId, event: structuredClone(event) };
   history.push(streamed);
+
   if (history.length > 256) history.shift();
   const data = frame(streamed.event, streamed.id);
+
   for (const response of clients) response.write(data);
 }
 
 function writeSnapshot(response) {
   response.write(frame({ command: "gateway_status", daemon_connected: true }));
+
   for (const command of Object.keys(durable).sort()) response.write(frame(durable[command]));
 }
 
 function handleCommand(command) {
-  if (command.command === "discover") {
-    later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10);
-  }
-  if (command.command === "accept_device") {
+  commandHandlers[command.command]?.(command);
+}
+
+const commandHandlers = {
+  discover: () => later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10),
+  accept_device: () => {
     durable.state_snapshot.pending_pairs = [];
     durable.state_snapshot.paired_devices = [{ fingerprint: peer.fingerprint, device_name: peer.name }];
     durable.state_snapshot.connected_clients[0].paired = true;
     publish({ command: "pair_accepted", fingerprint: peer.fingerprint, device_name: peer.name, connected: true });
-  }
-  if (command.command === "pair_request") {
-    publish({
-      command: "pair_outbound_pending",
-      fingerprint: peer.fingerprint,
-      device_name: command.device_name,
-      address: command.host,
-    });
-    later(() => publish({
-      command: "pair_accepted",
-      fingerprint: peer.fingerprint,
-      device_name: peer.name,
-      connected: true,
-    }), 10);
-  }
-  if (command.command === "forget_device") {
+  },
+  pair_request: (command) => {
+    publish({ command: "pair_outbound_pending", fingerprint: peer.fingerprint, device_name: command.device_name, address: command.host });
+    later(() => publish({ command: "pair_accepted", fingerprint: peer.fingerprint, device_name: peer.name, connected: true }), 10);
+  },
+  forget_device: (command) => {
     durable.state_snapshot.paired_devices = [];
     durable.state_snapshot.connected_clients = [];
     publish({ command: "forget_device_result", fingerprint: command.fingerprint, forgotten: true });
-  }
-  if (command.command === "file_upload_start") {
-    const validId = typeof command.operation_id === "string" && command.operation_id.length <= 128 &&
-      /^[A-Za-z0-9_.-]+$/.test(command.operation_id) && command.operation_id !== "." && command.operation_id !== "..";
-    const validSize = Number.isSafeInteger(command.size) && command.size >= 0 && command.size <= maxUploadBytes;
-    const success = validId && validSize && typeof command.filename === "string" && command.filename.length > 0 &&
-      !uploads.has(command.operation_id) && uploads.size < 2;
-    if (success) {
-      uploads.set(command.operation_id, {
-        filename: command.filename,
-        size: command.size,
-        bytes: 0,
-        nextChunk: 0,
-        sending: false,
-      });
-    }
-    publish({
-      command: "file_upload_started",
-      operation_id: command.operation_id,
-      filename: command.filename,
-      success,
-      message: success ? undefined : "Upload rejected.",
-    });
-  }
-  if (command.command === "file_upload_chunk") {
+  },
+  file_upload_start: handleUploadStart,
+  file_upload_chunk: handleUploadChunk,
+  file_upload_finish: handleUploadFinish,
+  file_upload_cancel: (command) => {
     const upload = uploads.get(command.operation_id);
-    const validBase64 = typeof command.data === "string" && command.data.length > 0 && command.data.length % 4 === 0 &&
-      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(command.data);
-    const bytes = validBase64 ? Buffer.from(command.data, "base64").byteLength : 0;
-    const valid = upload && !upload.sending && upload.nextChunk === command.chunk_index && bytes > 0 &&
-      bytes <= maxChunkBytes && upload.bytes + bytes <= upload.size;
-    if (valid) {
-      upload.bytes += bytes;
-      upload.nextChunk += 1;
-    } else {
-      uploads.delete(command.operation_id);
-      publish({
-        command: "file_send_complete",
-        operation_id: command.operation_id,
-        success: false,
-        message: "Upload chunk rejected.",
-      });
-    }
-  }
-  if (command.command === "file_upload_finish") {
-    const upload = uploads.get(command.operation_id);
-    const success = Boolean(upload && !upload.sending && upload.bytes === upload.size);
-    if (success) upload.sending = true;
-    else uploads.delete(command.operation_id);
-    later(() => {
-      if (success) uploads.delete(command.operation_id);
-      publish({
-        command: "file_send_complete",
-        operation_id: command.operation_id,
-        filename: upload?.filename,
-        success,
-        message: success ? "File sent." : "The upload was incomplete.",
-      });
-    }, 20);
-  }
-  if (command.command === "file_upload_cancel") {
-    const upload = uploads.get(command.operation_id);
+
     if (upload && !upload.sending) uploads.delete(command.operation_id);
-  }
-  if (command.command === "bt_scan") {
+  },
+  bt_scan: () => {
     later(() => publish({ command: "bt_devices", devices: [phone] }), 20);
     later(() => {
       publish({ command: "bt_scan_result", success: true, message: "Bluetooth scan finished." });
       publish({ command: "bt_devices", devices: [] });
     }, 40);
-  }
-  if (command.command === "bt_pair") {
-    later(() => {
-      publish({
-        command: "bt_pair_progress",
-        operation_id: command.operation_id,
-        step: "pair",
-        detail: "Waiting for the iPhone",
-      });
-      publish({
-        command: "bt_pair_confirm_request",
-        operation_id: command.operation_id,
-        code: "042731",
-      });
-    }, 20);
-  }
-  if (command.command === "bt_pair_confirm") {
-    later(() => {
-      if (!command.accept) {
-        publish({
-          command: "bt_pair_result",
-          operation_id: command.operation_id,
-          success: false,
-          status: "rejected",
-          message: "Pairing was cancelled.",
-        });
-        return;
-      }
-      setPhonePaired(true);
-      publish({
-        command: "bt_pair_result",
-        operation_id: command.operation_id,
-        success: true,
-        status: "paired",
-        message: "Paired with someone’s iPhone.",
-        dual_bond: true,
-      });
-      publish(durable.bt_devices);
-      publish(durable.bt_connection_changed);
-    }, 20);
-  }
-  if (command.command === "bt_set_enabled") {
+  },
+  bt_pair: (command) => later(() => {
+    publish({ command: "bt_pair_progress", operation_id: command.operation_id, step: "pair", detail: "Waiting for the iPhone" });
+    publish({ command: "bt_pair_confirm_request", operation_id: command.operation_id, code: "042731" });
+  }, 20),
+  bt_pair_confirm: (command) => later(() => finishPairing(command), 20),
+  bt_set_enabled: (command) => {
     durable.bt_status.enabled = command.enabled;
     publish(durable.bt_status);
-  }
-  if (command.command === "bt_solicit") {
-    later(() => publish({
-      command: "bt_solicit_result",
-      success: true,
-      message: "Asked the iPhone to re-offer notification access.",
-    }), 20);
-  }
-  if (command.command === "bt_airpods_connect") {
-    later(() => {
-      airpods.connected = command.connect;
-      durable.bt_devices = { command: "bt_devices", devices: [airpods] };
-      publish({ command: "bt_airpods_connect_result", success: true, message: "" });
-      publish(durable.bt_devices);
-    }, 20);
-  }
-  if (command.command === "bt_airpods_mode") {
+  },
+  bt_solicit: () => later(() => publish({ command: "bt_solicit_result", success: true, message: "Asked the iPhone to re-offer notification access." }), 20),
+  bt_airpods_connect: (command) => later(() => {
+    airpods.connected = command.connect;
+    durable.bt_devices = { command: "bt_devices", devices: [airpods] };
+    publish({ command: "bt_airpods_connect_result", success: true, message: "" });
+    publish(durable.bt_devices);
+  }, 20),
+  bt_airpods_mode: (command) => {
     durable.bt_airpods.anc = command.mode;
     publish({ command: "bt_airpods_mode_result", success: true, message: "" });
     publish(durable.bt_airpods);
-  }
-  if (command.command === "bt_airpods_enable") {
+  },
+  bt_airpods_enable: (command) => {
     durable.bt_status.airpods_enabled = command.enabled;
     publish(durable.bt_status);
-  }
-  if (command.command === "bt_airpods_pause") {
+  },
+  bt_airpods_pause: (command) => {
     durable.bt_status.airpods_pause = command.mode;
     publish(durable.bt_status);
-  }
-  if (command.command === "bt_airpods_handoff") {
+  },
+  bt_airpods_handoff: (command) => {
     durable.bt_status.airpods_handoff = command.enabled;
     publish(durable.bt_status);
-  }
-  if (command.command === "bt_unpair") {
-    later(() => {
-      setPhonePaired(false);
-      publish({
-        command: "bt_unpair_result",
-        operation_id: command.operation_id,
-        success: true,
-        status: "unpaired",
-        message: "Forgot someone’s iPhone.",
-      });
-      publish(durable.bt_status);
-      publish(durable.bt_devices);
-      publish(durable.bt_connection_changed);
-    }, 20);
-  }
+  },
+  bt_unpair: (command) => later(() => {
+    setPhonePaired(false);
+    publish({ command: "bt_unpair_result", operation_id: command.operation_id, success: true, status: "unpaired", message: "Forgot someone’s iPhone." });
+    publish(durable.bt_status);
+    publish(durable.bt_devices);
+    publish(durable.bt_connection_changed);
+  }, 20),
+};
+
+function handleUploadStart(command) {
+  const validId = typeof command.operation_id === "string" && command.operation_id.length <= 128 &&
+    /^[A-Za-z0-9_.-]+$/.test(command.operation_id) && command.operation_id !== "." && command.operation_id !== "..";
+
+  const validSize = Number.isSafeInteger(command.size) && command.size >= 0 && command.size <= maxUploadBytes;
+
+  const success = validId && validSize && typeof command.filename === "string" && command.filename.length > 0 &&
+    !uploads.has(command.operation_id) && uploads.size < 2;
+
+  if (success) uploads.set(command.operation_id, { filename: command.filename, size: command.size, bytes: 0, nextChunk: 0, sending: false });
+  publish({ command: "file_upload_started", operation_id: command.operation_id, filename: command.filename, success, message: success ? undefined : "Upload rejected." });
 }
+
+function handleUploadChunk(command) {
+  const upload = uploads.get(command.operation_id);
+
+  const validBase64 = typeof command.data === "string" && command.data.length > 0 && command.data.length % 4 === 0 &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(command.data);
+
+  const bytes = validBase64 ? Buffer.from(command.data, "base64").byteLength : 0;
+  const valid = upload && !upload.sending && upload.nextChunk === command.chunk_index && bytes > 0 && bytes <= maxChunkBytes && upload.bytes + bytes <= upload.size;
+
+  if (valid) {
+    upload.bytes += bytes;
+    upload.nextChunk += 1;
+
+    return;
+  }
+
+  uploads.delete(command.operation_id);
+  publish({ command: "file_send_complete", operation_id: command.operation_id, success: false, message: "Upload chunk rejected." });
+}
+
+function handleUploadFinish(command) {
+  const upload = uploads.get(command.operation_id);
+  const success = Boolean(upload && !upload.sending && upload.bytes === upload.size);
+
+  if (success) upload.sending = true;
+  else uploads.delete(command.operation_id);
+  later(() => {
+    if (success) uploads.delete(command.operation_id);
+    publish({ command: "file_send_complete", operation_id: command.operation_id, filename: upload?.filename, success, message: success ? "File sent." : "The upload was incomplete." });
+  }, 20);
+}
+
+function finishPairing(command) {
+  if (!command.accept) {
+    publish({ command: "bt_pair_result", operation_id: command.operation_id, success: false, status: "rejected", message: "Pairing was cancelled." });
+
+    return;
+  }
+
+  setPhonePaired(true);
+  publish({ command: "bt_pair_result", operation_id: command.operation_id, success: true, status: "paired", message: "Paired with someone’s iPhone.", dual_bond: true });
+  publish(durable.bt_devices);
+  publish(durable.bt_connection_changed);
+}
+
+const requestBodySchema = z.object({}).passthrough();
 
 async function readJSON(request) {
   let body = "";
+
   for await (const chunk of request) body += chunk;
-  return body ? JSON.parse(body) : {};
+
+  try {
+    const parsed = requestBodySchema.safeParse(body ? JSON.parse(body) : {});
+
+    return parsed.success ? parsed.data : {};
+  } catch {
+    return {};
+  }
 }
 
 const server = createServer(async (request, response) => {
   if (request.url === "/__test/reset" && request.method === "POST") {
     reset(await readJSON(request));
     response.writeHead(204).end();
+
     return;
   }
+
   if (request.url === "/__test/fail-next-command" && request.method === "POST") {
     const body = await readJSON(request);
     failNextCommand = body.command || "*";
     response.writeHead(204).end();
+
     return;
   }
+
   if (request.url === "/api/v1/state") {
     response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     response.end(JSON.stringify({ daemon_connected: true, events: durable }));
+
     return;
   }
+
   if (request.url === "/api/v1/events") {
     response.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -456,30 +434,39 @@ const server = createServer(async (request, response) => {
       Connection: "keep-alive",
     });
     const lastEventId = Number(request.headers["last-event-id"] ?? 0);
+
     if (lastEventId) {
       for (const streamed of history) {
         if (streamed.id > lastEventId) response.write(frame(streamed.event, streamed.id));
       }
     }
+
     writeSnapshot(response);
     clients.add(response);
     request.on("close", () => clients.delete(response));
+
     return;
   }
+
   if (request.url === "/api/v1/commands" && request.method === "POST") {
     const command = await readJSON(request);
+
     if (failNextCommand === "*" || failNextCommand === command.command) {
       failNextCommand = undefined;
       response.writeHead(503).end();
+
       return;
     }
+
     handleCommand(command);
     response.writeHead(202).end();
+
     return;
   }
 
   const requested = request.url === "/" ? "index.html" : request.url.slice(1);
   let path = join(dist, requested);
+
   if (!existsSync(path) || statSync(path).isDirectory()) path = join(dist, "index.html");
   const contentTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
   response.writeHead(200, { "Content-Type": contentTypes[extname(path)] ?? "application/octet-stream" });
@@ -487,5 +474,7 @@ const server = createServer(async (request, response) => {
 });
 
 reset();
+
 server.listen(4173, "127.0.0.1");
+
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => server.close(() => process.exit(0)));

@@ -1,9 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileUploadStartedEvent } from "../../protocol";
-import { maxUploadBytes, useFileTransfer } from "./useFileTransfer";
+import { daemonCommandSchema } from "../../protocolSchemas";import { maxUploadBytes, useFileTransfer } from "./useFileTransfer";
 
 const operationId = "11111111-1111-4111-8111-111111111111";
+
+function parseCommandBody(body: string) {
+  return daemonCommandSchema.parse(JSON.parse(body));
+}
 
 beforeEach(() => {
   vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(operationId);
@@ -23,7 +27,7 @@ describe("browser file transfer", () => {
 
     const fetchMock = vi.mocked(fetch);
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    const commands = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    const commands = fetchMock.mock.calls.map(([, init]) => parseCommandBody(String(init?.body)));
     expect(commands).toEqual([
       { command: "file_upload_start", operation_id: operationId, filename: "notes.txt", size: 5 },
       { command: "file_upload_chunk", operation_id: operationId, chunk_index: 0, data: "aGVsbG8=" },
@@ -38,7 +42,7 @@ describe("browser file transfer", () => {
 
     await act(async () => result.current.sendFile(new File([bytes], "large.bin")));
 
-    const commands = vi.mocked(fetch).mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    const commands = vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body)));
     const chunks = commands.filter((command) => command.command === "file_upload_chunk");
     expect(chunks.map((chunk) => chunk.chunk_index)).toEqual([0, 1]);
     expect(chunks.map((chunk) => atob(String(chunk.data)).length)).toEqual([48 * 1024, 17]);
@@ -77,9 +81,11 @@ describe("browser file transfer", () => {
 
   it("best-effort cancels an unfinished upload when tetherd disconnects", async () => {
     let resolveStart: ((response: Response) => void) | undefined;
+
     const fetchMock = vi.fn()
       .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveStart = resolve; }))
       .mockResolvedValue(new Response(null, { status: 202 }));
+
     vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useFileTransfer());
     let transfer: Promise<void> | undefined;
@@ -87,7 +93,7 @@ describe("browser file transfer", () => {
 
     act(() => result.current.handleDisconnect());
 
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    expect(parseCommandBody(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       command: "file_upload_cancel",
       operation_id: operationId,
     });
@@ -98,9 +104,11 @@ describe("browser file transfer", () => {
 
   it("cancels and stops an unfinished upload when its view unmounts", async () => {
     let resolveStart: ((response: Response) => void) | undefined;
+
     const fetchMock = vi.fn()
       .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveStart = resolve; }))
       .mockResolvedValue(new Response(null, { status: 202 }));
+
     vi.stubGlobal("fetch", fetchMock);
     const { result, unmount } = renderHook(() => useFileTransfer());
     let transfer: Promise<void> | undefined;
@@ -108,7 +116,7 @@ describe("browser file transfer", () => {
 
     unmount();
 
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    expect(parseCommandBody(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       command: "file_upload_cancel",
       operation_id: operationId,
     });
@@ -122,6 +130,7 @@ describe("browser file transfer", () => {
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockResolvedValueOnce(new Response(null, { status: 202 }))
       .mockRejectedValueOnce(new Error("connection reset"));
+
     vi.stubGlobal("fetch", fetchMock);
     const { result } = renderHook(() => useFileTransfer());
 
@@ -158,6 +167,7 @@ describe("browser file transfer", () => {
 
   it("bounds the wait for a missing send result", async () => {
     vi.useFakeTimers();
+
     try {
       const { result } = renderHook(() => useFileTransfer());
       await act(async () => result.current.sendFile(new File([], "empty.txt")));
@@ -168,7 +178,7 @@ describe("browser file transfer", () => {
         status: "error",
         message: "Timed out waiting for the file-send result.",
       });
-      expect(JSON.parse(String(vi.mocked(fetch).mock.calls[2]?.[1]?.body))).toEqual({
+      expect(parseCommandBody(String(vi.mocked(fetch).mock.calls[2]?.[1]?.body))).toEqual({
         command: "file_upload_cancel",
         operation_id: operationId,
       });
@@ -180,6 +190,7 @@ describe("browser file transfer", () => {
   it("stops an upload after a daemon rejection", async () => {
     const { result } = renderHook(() => useFileTransfer());
     await act(async () => result.current.sendFile(new File(["ok"], "ok.txt")));
+
     const event: FileUploadStartedEvent = {
       command: "file_upload_started",
       operation_id: operationId,

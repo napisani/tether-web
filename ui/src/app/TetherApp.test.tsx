@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TetherApp } from "./TetherApp";
 import { DaemonCommandTimeoutError } from "../daemon/DaemonClient";
 import type { DaemonEvent } from "../protocol";
+import { daemonCommandSchema } from "../protocolSchemas";
+
+function parseCommandBody(body: string) {
+  return daemonCommandSchema.parse(JSON.parse(body));
+}
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -121,7 +126,9 @@ describe("gateway event lifecycle", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Pair over Bluetooth" }));
-    const command = JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body));
+    const command = parseCommandBody(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body));
+
+    if (command.command !== "bt_pair") throw new Error("expected a pairing command");
     act(() => events.emit({
       command: "bt_pair_confirm_request",
       operation_id: command.operation_id,
@@ -158,7 +165,7 @@ describe("gateway event lifecycle", () => {
     });
 
     await waitFor(() => {
-      const commands = vi.mocked(fetch).mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+      const commands = vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body)));
       expect(commands.filter((command) => command.command === "bt_status")).toHaveLength(2);
       expect(commands.filter((command) => command.command === "bt_list_devices")).toHaveLength(2);
     });
@@ -166,6 +173,7 @@ describe("gateway event lifecycle", () => {
 
   it("times out an accepted pairing command when no terminal event arrives", () => {
     vi.useFakeTimers();
+
     try {
       vi.mocked(fetch).mockResolvedValue({ ok: true, status: 202 } as Response);
       render(<TetherApp />);
@@ -192,6 +200,7 @@ describe("gateway event lifecycle", () => {
 
   it("times out an accepted unpair command when no terminal event arrives", () => {
     vi.useFakeTimers();
+
     try {
       vi.mocked(fetch).mockResolvedValue({ ok: true, status: 202 } as Response);
       render(<TetherApp />);
@@ -234,7 +243,7 @@ describe("gateway event lifecycle", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: /Connect to this iPhone/ }));
 
-    expect(JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body))).toEqual({
+    expect(parseCommandBody(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body))).toEqual({
       command: "bt_set_enabled",
       enabled: false,
     });
@@ -245,6 +254,7 @@ describe("gateway event lifecycle", () => {
 
   it("releases permission solicitation after its result timeout", () => {
     vi.useFakeTimers();
+
     try {
       vi.mocked(fetch).mockResolvedValue({ ok: true, status: 202 } as Response);
       render(<TetherApp />);
@@ -252,7 +262,7 @@ describe("gateway event lifecycle", () => {
       emitPairedPhone(events);
 
       fireEvent.click(screen.getByRole("button", { name: "Show iPhone Permissions" }));
-      expect(JSON.parse(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body))).toEqual({ command: "bt_solicit" });
+      expect(parseCommandBody(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body))).toEqual({ command: "bt_solicit" });
       act(() => vi.advanceTimersByTime(60_000));
 
       expect(screen.getByText("No permission result arrived from tetherd. Check the iPhone, then try again.")).toBeInTheDocument();

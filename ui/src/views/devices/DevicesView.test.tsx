@@ -218,6 +218,7 @@ describe("guided pairing view", () => {
       },
       pairing: { phase: "idle" },
     };
+
     renderDevicesView({
       daemon: {
         ...pairedDaemon,
@@ -235,6 +236,7 @@ describe("guided pairing view", () => {
 
   it("offers an Apple nearby advertisement as a possible iPhone", () => {
     const pair = vi.fn();
+
     const candidate = {
       ...pairedState.devices[0],
       address: "40:F6:64:3D:7A:F1",
@@ -253,6 +255,7 @@ describe("guided pairing view", () => {
       ancs: false,
       ancs_notifying: false,
     };
+
     renderDevicesView({
       state: {
         ...pairedState,
@@ -287,6 +290,7 @@ describe("guided pairing view", () => {
       ancs: false,
       ancs_notifying: false,
     };
+
     renderDevicesView({
       state: {
         ...pairedState,
@@ -338,6 +342,7 @@ describe("guided pairing view", () => {
       accept: vi.fn(),
       forget: vi.fn(),
     };
+
     const peer = {
       fingerprint: "peer-1",
       name: "Nearby phone",
@@ -347,6 +352,7 @@ describe("guided pairing view", () => {
       connected: false,
       pending: true,
     };
+
     renderDevicesView({
       state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
       peerActions: actions,
@@ -360,6 +366,7 @@ describe("guided pairing view", () => {
 
   it("offers file selection and drop for a connected trusted peer", () => {
     const sendFile = vi.fn();
+
     const fileTransfer: FileTransferActions = {
       state: { sentBytes: 0, totalBytes: 0, status: "idle" },
       sendFile,
@@ -367,6 +374,7 @@ describe("guided pairing view", () => {
       handleEvent: vi.fn(),
       handleDisconnect: vi.fn(),
     };
+
     const peer = {
       fingerprint: "peer-1",
       name: "Nearby phone",
@@ -376,6 +384,7 @@ describe("guided pairing view", () => {
       connected: true,
       pending: false,
     };
+
     renderDevicesView({
       daemon: {
         ...pairedDaemon,
@@ -393,6 +402,7 @@ describe("guided pairing view", () => {
 
   it("labels file progress and offers cancellation only while staging", () => {
     const cancel = vi.fn();
+
     const peer = {
       fingerprint: "peer-1",
       name: "Nearby phone",
@@ -402,6 +412,7 @@ describe("guided pairing view", () => {
       connected: true,
       pending: false,
     };
+
     renderDevicesView({
       daemon: {
         ...pairedDaemon,
@@ -430,6 +441,7 @@ describe("guided pairing view", () => {
       setPause: vi.fn(),
       setHandoff: vi.fn(),
     };
+
     const airpods = {
       address: "AA:BB:CC:DD:EE:FF",
       name: "AirPods Pro",
@@ -437,6 +449,7 @@ describe("guided pairing view", () => {
       paired: true,
       connected: true,
     };
+
     renderDevicesView({
       state: {
         ...pairedState,
