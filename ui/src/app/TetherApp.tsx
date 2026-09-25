@@ -12,6 +12,8 @@ import { NotificationsView } from "../views/notifications/NotificationsView";
 import { useNotifications } from "../views/notifications/useNotifications";
 import { CallsView } from "../views/calls/CallsView";
 import { useCalls } from "../views/calls/useCalls";
+import { ContactsView } from "../views/contacts/ContactsView";
+import { useContacts } from "../views/contacts/useContacts";
 import { AppShell, type AppRoute } from "./AppShell";
 import { initialAppState, reduceAppState } from "./appState";
 
@@ -20,9 +22,12 @@ export function TetherApp() {
   const [route, setRoute] = useState<AppRoute>("devices");
   const fileTransfer = useFileTransfer();
   const messages = useMessages(route === "messages");
-  const notificationsAvailable = state.daemon.protocol?.capabilities.includes("notifications") === true;
+  const hasCapability = (capability: string) => state.daemon.protocol?.capabilities.includes(capability) === true;
+  const contactsAvailable = hasCapability("contacts");
+  const contacts = useContacts(route === "contacts" && contactsAvailable);
+  const notificationsAvailable = hasCapability("notifications");
   const notifications = useNotifications(route === "notifications" && notificationsAvailable);
-  const callsAvailable = state.daemon.protocol?.capabilities.includes("calls") === true;
+  const callsAvailable = hasCapability("calls");
   const calls = useCalls(route === "calls" && callsAvailable);
   const lastCallsEnabled = useRef<boolean | undefined>(undefined);
   const [callsCapabilityError, setCallsCapabilityError] = useState(false);
@@ -48,19 +53,22 @@ export function TetherApp() {
         setCallsCapabilityError(false);
         fileTransfer.handleDisconnect();
         messages.handleDisconnect();
+        contacts.handleDisconnect();
         notifications.handleDisconnect();
         calls.handleDisconnect();
       }
 
       dispatch({ type: "daemon-connected", connected });
     },
-    [fileTransfer.handleDisconnect, messages.handleDisconnect, notifications.handleDisconnect, calls.handleDisconnect],
+    [fileTransfer.handleDisconnect, messages.handleDisconnect, contacts.handleDisconnect,
+      notifications.handleDisconnect, calls.handleDisconnect],
   );
 
   const onEvent = useCallback(
     (event: DaemonEvent) => {
       fileTransfer.handleEvent(event);
       messages.handleEvent(event);
+      contacts.handleEvent(event);
       notifications.handleEvent(event);
       calls.handleEvent(event);
 
@@ -68,6 +76,7 @@ export function TetherApp() {
         lastCallsEnabled.current = undefined;
         setCallsCapabilityError(false);
         messages.handleDisconnect();
+        contacts.handleDisconnect();
         notifications.handleDisconnect();
         calls.handleDisconnect();
       }
@@ -86,7 +95,8 @@ export function TetherApp() {
       }
     },
     [fileTransfer.handleEvent, messages.handleEvent, messages.handleDisconnect,
-      notifications.handleEvent, notifications.handleDisconnect, calls.handleEvent, calls.handleDisconnect,
+      contacts.handleEvent, contacts.handleDisconnect, notifications.handleEvent, notifications.handleDisconnect,
+      calls.handleEvent, calls.handleDisconnect,
       refreshCallsCapability],
   );
 
@@ -131,7 +141,10 @@ export function TetherApp() {
           }
         }} />}
       {route === "messages" && <MessagesView messages={messages} daemonConnected={state.daemon.connected}
-        available={state.daemon.protocol?.capabilities.includes("messages") === true} />}
+        available={hasCapability("messages")} />}
+      {route === "contacts" && <ContactsView contacts={contacts} daemonConnected={state.daemon.connected}
+        available={contactsAvailable} onOpenDevices={() => setRoute("devices")}
+        onMessage={(thread, name) => { messages.openThread(thread, name); setRoute("messages"); }} />}
       {route === "devices" && <DevicesView
         daemon={state.daemon}
         state={state.devices}

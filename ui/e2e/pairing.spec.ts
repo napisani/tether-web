@@ -17,6 +17,29 @@ test("reads and replies to an iPhone conversation", async ({ page, request }) =>
   await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
 });
 
+test("searches iPhone contacts and opens an existing or new message thread", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withMessages: true, withContacts: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Contacts" }).click();
+  await expect(page.getByRole("heading", { name: "Contacts" })).toBeVisible();
+  await expect(page.getByText("Grace")).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search contacts" }).fill("ada@example");
+  await expect(page.getByText("Ada", { exact: true })).toBeVisible();
+  await expect(page.getByText("Grace")).not.toBeVisible();
+  await page.getByText("Ada", { exact: true }).click();
+  await page.getByRole("button", { name: "Message +15550102" }).click();
+  await expect(page.getByRole("heading", { name: "Ada" })).toBeVisible();
+  await expect(page.getByLabel("Received: See you soon")).toBeVisible();
+  await expect(page.getByLabel("To", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Contacts" }).click();
+  await page.getByRole("searchbox", { name: "Search contacts" }).fill("Grace");
+  await page.getByText("Grace", { exact: true }).click();
+  await page.getByRole("button", { name: "Message +15550103" }).click();
+  await expect(page.getByRole("heading", { name: "Grace" })).toBeVisible();
+  await expect(page.getByLabel("To", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+});
+
 test("lists and dismisses an iPhone notification", async ({ page, request }) => {
   await request.post("/__test/reset", { data: { withNotifications: true } });
   await page.goto("/");

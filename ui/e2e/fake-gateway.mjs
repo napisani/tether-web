@@ -26,6 +26,8 @@ let messageThreads = [];
 
 let messageHistory = [];
 
+let phoneContacts = [];
+
 let phoneNotifications = [];
 
 let phoneCalls = [];
@@ -183,7 +185,16 @@ function resetCallsScenario(withCalls) {
   }
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, withNotifications = false, withCalls = false } = {}) {
+function resetContactsScenario(withContacts) {
+  phoneContacts = withContacts ? [
+    { name: "Ada", addresses: ["tel:+15550102", "email:ada@example.com"] },
+    { name: "Grace", addresses: ["tel:+15550103"] },
+  ] : [];
+
+  if (withContacts) durable.protocol_info.capabilities.push("contacts");
+}
+
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, withNotifications = false, withCalls = false, withContacts = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
@@ -195,8 +206,9 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
   resetNotificationScenario(withMessages, withNotifications);
   durable.bt_status = baseBluetoothStatus();
-  setPhonePaired([paired, withMessages, withNotifications, withCalls].some(Boolean));
+  setPhonePaired([paired, withMessages, withNotifications, withCalls, withContacts].some(Boolean));
   resetCallsScenario(withCalls);
+  resetContactsScenario(withContacts);
   durable.state_snapshot = emptyStateSnapshot();
 
   if (bluetoothSetup && paired) {
@@ -347,8 +359,12 @@ const commandHandlers = {
   bt_solicit: () => later(() => publish({ command: "bt_solicit_result", success: true, message: "Asked the iPhone to re-offer notification access." }), 20),
   bt_list_threads: () => later(() => publish({ command: "bt_threads", threads: messageThreads }), 10),
   bt_list_messages: (command) => later(() => publish({ command: "bt_messages", thread: command.thread, messages: messageHistory.filter((item) => item.thread === command.thread) }), 10),
-  bt_list_contacts: (command) => later(() => publish({ command: "bt_contacts", query: command.query,
-    contacts: [{ name: "Ada", addresses: ["tel:+15550102"] }] }), 10),
+  bt_list_contacts: (command) => later(() => {
+    const query = (command.query || "").toLowerCase();
+    const available = query && !phoneContacts.length ? [{ name: "Ada", addresses: ["tel:+15550102"] }] : phoneContacts;
+    publish({ command: "bt_contacts", query: command.query || "",
+      contacts: available.filter((item) => `${item.name} ${item.addresses.join(" ")}`.toLowerCase().includes(query)).slice(0, command.limit || 5000) });
+  }, 10),
   bt_mark_read: (command) => later(() => {
     messageHistory = messageHistory.map((item) => command.handles.includes(item.handle) ? { ...item, read: true } : item);
     messageThreads = messageThreads.map((item) => ({ ...item, unread: 0 }));

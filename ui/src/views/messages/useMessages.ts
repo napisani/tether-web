@@ -50,6 +50,7 @@ export function useMessages(visible: boolean) {
   const timer = useRef<number | undefined>(undefined);
   const markedRead = useRef(new Set<string>());
   const pendingRead = useRef(new Set<string>());
+  const contactHandoff = useRef<string | null>(null);
 
   const change = useCallback((update: (value: MessagesState) => MessagesState) => {
     setState((previous) => {
@@ -78,9 +79,17 @@ export function useMessages(visible: boolean) {
 
   const handleEvent = useCallback((event: DaemonEvent) => {
     switch (event.command) {
-      case "bt_threads":
-        change((value) => ({ ...value, threads: event.threads, threadsKnown: true }));
+      case "bt_threads": {
+        const handoff = contactHandoff.current;
+        const found = handoff !== null && event.threads.some((item) => item.thread === handoff);
+
+        contactHandoff.current = null;
+        change((value) => ({ ...value, threads: event.threads, threadsKnown: true,
+          composing: found && value.selected === handoff ? false : value.composing,
+          recipient: found && value.selected === handoff ? "" : value.recipient }));
         break;
+      }
+
       case "bt_messages":
         if (event.thread !== current.current.selected) break;
         change((value) => ({ ...value, messages: event.messages, loadedThread: event.thread }));
@@ -151,6 +160,7 @@ export function useMessages(visible: boolean) {
   const handleDisconnect = useCallback(() => {
     markedRead.current.clear();
     pendingRead.current.clear();
+    contactHandoff.current = null;
 
     if (pending.current) {
       pending.current = null;
@@ -187,11 +197,31 @@ export function useMessages(visible: boolean) {
     });
   }, [state.loadedThread, state.messages, state.mapOpen, state.selected]);
 
-  const selectThread = (thread: string) => {
-    change((value) => ({ ...value, selected: thread, composing: false, messages: [], loadedThread: "", error: "" }));
+  const loadThread = (thread: string, composing: boolean, recipient: string) => {
+    change((value) => ({ ...value, selected: thread, composing, recipient,
+      contacts: [], messages: [], loadedThread: "", error: "" }));
 
     if (thread) void sendDaemonCommand({ command: "bt_list_messages", thread }).catch(() => {
       change((value) => ({ ...value, error: "Could not load this conversation." }));
+    });
+  };
+
+  const selectThread = (thread: string) => {
+    contactHandoff.current = null;
+    loadThread(thread, false, "");
+  };
+
+  const openThread = (thread: string, name: string) => {
+    const existing = current.current.threads.some((item) => item.thread === thread);
+
+    contactHandoff.current = current.current.threadsKnown ? null : thread;
+    loadThread(thread, !existing, existing ? "" : name);
+
+    if (!current.current.threadsKnown) void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {
+      if (contactHandoff.current === thread) {
+        contactHandoff.current = null;
+        change((value) => ({ ...value, error: "Could not check existing conversations." }));
+      }
     });
   };
 
@@ -204,11 +234,13 @@ export function useMessages(visible: boolean) {
   };
 
   const startCompose = () => {
+    contactHandoff.current = null;
     change((value) => ({ ...value, selected: "", composing: true, recipient: "", contacts: [],
       messages: [], loadedThread: "", error: "" }));
   };
 
   const setRecipient = (recipient: string) => {
+    contactHandoff.current = null;
     change((value) => ({ ...value, recipient, contacts: [], selected: "", messages: [], loadedThread: "" }));
 
     if (recipient.trim()) {
@@ -217,6 +249,7 @@ export function useMessages(visible: boolean) {
   };
 
   const chooseRecipient = (thread: string, label: string) => {
+    contactHandoff.current = null;
     change((value) => ({ ...value, recipient: label, contacts: [], selected: thread, messages: [], loadedThread: "" }));
     void sendDaemonCommand({ command: "bt_list_messages", thread }).catch(() => {});
   };
@@ -260,6 +293,6 @@ export function useMessages(visible: boolean) {
   const selected = state.threads.find((thread) => thread.thread === selectedThread);
   const canSend = state.mapOpen && Boolean(selectedThread) && selected?.repliable !== false && !state.sending;
 
-  return { state, selectedThread, draft, canSend, selectThread, setSearch, startCompose, setRecipient,
+  return { state, selectedThread, draft, canSend, selectThread, openThread, setSearch, startCompose, setRecipient,
     chooseRecipient, setDraft, send, solicitPermissions, handleEvent, handleDisconnect, refresh };
 }

@@ -20,7 +20,7 @@ The web client provides the Devices view's guided Bluetooth flow:
 - discover, approve, connect, and forget Tether peers over Wi-Fi; and
 - send files to a connected trusted peer from a file picker or drop zone.
 
-The web client also offers Messages (conversation search, drafts, sending, and read state), Notifications (ANCS list and dismissal), and Calls (live HFP call control, dialing, and daemon-host audio routing). Confirmed Messages sending requires the upstream optional message-send operation ID; uncorrelated results never clear a browser draft. Calls never stream audio to the browser. This is not yet a complete GTK replacement: contacts, settings, and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
+The web client also offers Messages (conversation search, drafts, sending, and read state), Notifications (ANCS list and dismissal), Calls (live HFP call control, dialing, and daemon-host audio routing), and Contacts (search, phone/email details, and message handoff). Confirmed Messages sending requires the upstream optional message-send operation ID; uncorrelated results never clear a browser draft. Calls never stream audio to the browser. This is not yet a complete GTK replacement: settings and other desktop behavior remain future work. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
 
 ## Requirements
 

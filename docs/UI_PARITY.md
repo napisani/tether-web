@@ -60,14 +60,14 @@ its ownership should still make the GTK/Web relationship obvious.
 
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
-| App shell | Partial | Shared header, Devices/Messages/Notifications/Calls view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
+| App shell | Partial | Shared header, Devices/Messages/Notifications/Calls/Contacts view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
 | Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
 | Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, reconnect cleanup, responsive navigation; user-validated on a physical phone | Broader device/permission matrix, app-wide unread state |
 | Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation | Physical-phone ANCS validation, browser OS notification policy |
 | Calls | Partial | HFP availability, live call list, dial/answer/decline/hang up, daemon-host/iPhone audio routing, network indicators, withheld numbers, reconnect and uncertain-outcome handling | Physical-phone HFP validation, contact completion, persistent call history (not supplied by daemon) |
-| Contacts | Not started | Navigation placeholder | Search, grouped contact details, message handoff |
+| Contacts | Implemented locally | PBAP-gated bounded address-book refresh, accent-insensitive name/address search, expandable phone/email details, copy and namespaced message-thread handoff, unavailable/error/reconnect states, responsive layout | Physical-phone PBAP validation |
 | Settings | Not started | None | Bluetooth, ANCS, popup, call, away-lock, retention, and tray preferences where applicable |
-| Shared helpers | Partial | Message formatting for the Messages view | App-wide contact completion, persisted preferences |
+| Shared helpers | Partial | Message formatting and contact suggestions in Messages; contact-to-message handoff | App-wide contact completion, persisted preferences |
 
 Update this table whenever either client gains or intentionally changes a
 user-visible capability.
@@ -174,6 +174,21 @@ code. They are decisions to review, not implicit omissions.
   requires a password file and protects the browser API with HTTP Basic over
   deployment-provided HTTPS; all authenticated sessions still share the same
   daemon permissions.
+- Contacts request the same 5,000-entry bounded `bt_list_contacts` list as GTK and
+  hand the daemon's `tel:`/`email:` keys directly to Messages. The browser
+  filters names and addresses locally, including accent-insensitive matching,
+  and does not persist the address book. Unlike GTK's persisted contact store,
+  browser rows clear on PBAP loss and daemon disconnect to protect private data
+  on remote devices; refresh is available again when PBAP reconnects. The
+  daemon's uncorrelated `bt_contacts` replies are shared across tabs: this view
+  accepts only full-list (`query: ""`) events while visible and connected, not
+  the query-specific suggestions used by Messages. `tetherd` handles list
+  commands synchronously over the gateway's single ordered socket, so an
+  earlier full-list reply cannot overwrite a later one; a reply already in
+  flight may briefly display old rows after PBAP reconnect until the fresh
+  list arrives. All authenticated browser tabs intentionally share daemon
+  privileges and receive its uncorrelated events, so this is not per-tab
+  private storage or a claim of request ownership.
 - **Send Clipboard** remains deferred. `clipboard_send` reads the *host desktop*
   selection, not the browser clipboard, and broadcasts plaintext clipboard
   events to every authenticated browser.

@@ -58,6 +58,26 @@ describe("Messages lifecycle", () => {
     expect(result.current.draft).toBe("Not finished");
   });
 
+  it("resolves an existing contact thread when Messages has never been opened", () => {
+    const { result } = renderHook(() => useMessages(false));
+
+    act(() => result.current.openThread(thread, "Ada"));
+    expect(commands()).toContainEqual({ command: "bt_list_threads" });
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Ada" }] }));
+    expect(result.current.state).toMatchObject({ selected: thread, composing: false });
+    expect(result.current.state.recipient).toBe("");
+  });
+
+  it("opens existing and new contact addresses without losing namespaced thread keys", () => {
+    const { result } = renderHook(() => useMessages(false));
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Ada" }] }));
+    act(() => result.current.openThread(thread, "Ada"));
+    expect(result.current.state).toMatchObject({ selected: thread, composing: false });
+    act(() => result.current.openThread("email:grace@example.com", "Grace"));
+    expect(result.current.state).toMatchObject({ selected: "email:grace@example.com", recipient: "Grace", composing: true });
+    expect(commands()).toContainEqual({ command: "bt_list_messages", thread: "email:grace@example.com" });
+  });
+
   it("only an owned result clears its draft, and a failure keeps text for retry", () => {
     const { result } = renderHook(() => useMessages(false));
     act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: true }));

@@ -151,9 +151,10 @@ Before declaring parity complete:
 
 ## Current execution boundary
 
-Batches 1–3 are deployed to the homelab from pinned core and web stack tips;
-Messages passed user-led phone testing. Batch 4 Notifications is committed but
-not deployed. Batch 5 Calls is in a separate stacked local web worktree, still
-awaiting physical-phone HFP validation. Send Clipboard is deferred pending
-app-wide security and trustworthy completion semantics. Each new deployment
-needs separate approval.
+Batches 1–5 are implemented and deployed to the homelab from pinned core and
+web stack tips; Messages passed user-led phone testing. Notifications and Calls
+still await physical-phone ANCS and HFP validation. Batch 6 Contacts is
+implemented on a stacked web branch with no core changes; it needs physical-phone
+PBAP validation before claiming hardware parity. Batches 7–8 are still pending.
+Send Clipboard is deferred pending app-wide security and trustworthy completion
+semantics. Each new deployment needs separate approval.
