@@ -29,7 +29,7 @@ export function AppShell({
   version?: string;
 }) {
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${route === "messages" ? "messages-route" : ""}`}>
       <AppHeader connected={phoneConnected || wifiConnected} route={route} onNavigate={onNavigate}
         unreadCount={unreadCount} showCalls={showCalls} />
       {children}

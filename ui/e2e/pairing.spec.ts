@@ -23,6 +23,81 @@ test("reads and replies to an iPhone conversation", async ({ page, request }) =>
   await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
 });
 
+test("keeps long conversations in two independent viewport-height scroll panes", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "Desktop uses the side-by-side conversation layout");
+  await page.setViewportSize({ width: 1882, height: 1876 });
+  await request.post("/__test/reset", { data: { withMessages: true, longMessages: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Messages" }).click();
+  await page.getByRole("button", { name: /Ada See you soon/ }).click();
+  await expect(page.getByLabel("Received: Test message 81")).toBeVisible();
+  await expect(page.locator(".messages-history .message-row.outgoing")).toHaveCount(40);
+
+  const threads = page.locator(".messages-threads");
+  const history = page.getByRole("list", { name: "Messages in conversation" });
+
+  await expect.poll(() => history.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  const layout = await page.evaluate(() => {
+    const shell = document.querySelector(".app-shell")!;
+    const sidebar = document.querySelector(".messages-sidebar")!;
+    const list = document.querySelector(".messages-threads")!;
+    const conversation = document.querySelector(".messages-history")!;
+    const footer = document.querySelector(".route-status-bar")!;
+
+    return {
+      pageHeight: document.documentElement.scrollHeight, viewportHeight: window.innerHeight,
+      shellHeight: shell.getBoundingClientRect().height,
+      sidebarHeight: sidebar.getBoundingClientRect().height,
+      footerBottom: footer.getBoundingClientRect().bottom,
+      threadsScrollable: list.scrollHeight > list.clientHeight,
+      historyScrollable: conversation.scrollHeight > conversation.clientHeight,
+      distanceFromLatest: conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop,
+    };
+  });
+
+  expect(layout.pageHeight).toBeLessThanOrEqual(layout.viewportHeight + 2);
+  expect(layout.shellHeight).toBeLessThanOrEqual(layout.viewportHeight + 2);
+  expect(layout.sidebarHeight).toBeLessThan(layout.viewportHeight);
+  expect(layout.footerBottom).toBeLessThanOrEqual(layout.viewportHeight + 2);
+  expect(layout.threadsScrollable).toBe(true);
+  expect(layout.historyScrollable).toBe(true);
+  expect(layout.distanceFromLatest).toBeLessThan(2);
+
+  await page.getByRole("textbox", { name: "Message" }).fill("Final test reply");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByLabel("Sent: Final test reply")).toBeVisible();
+  await expect.poll(() => history.evaluate((element) =>
+    element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(2);
+
+  const originalHistoryScroll = await history.evaluate((element) => element.scrollTop);
+  expect(await threads.evaluate((element) => {
+    element.scrollTop = 180;
+
+    return element.scrollTop;
+  })).toBeGreaterThan(0);
+  expect(await history.evaluate((element) => element.scrollTop)).toBe(originalHistoryScroll);
+  await history.evaluate((element) => { element.scrollTop = 0; });
+  expect(await threads.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+});
+
+test("opens a long mobile conversation at the latest message without page scrolling", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile", "Mobile shows one messages pane at a time");
+  await request.post("/__test/reset", { data: { withMessages: true, longMessages: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Messages" }).click();
+  const threads = page.locator(".messages-threads");
+  await expect.poll(() => threads.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+  await page.getByRole("button", { name: /Ada See you soon/ }).click();
+  const history = page.getByRole("list", { name: "Messages in conversation" });
+  await expect(page.getByLabel("Received: Test message 81")).toBeVisible();
+  await expect.poll(() => history.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(2);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(
+    await page.evaluate(() => window.innerHeight + 2),
+  );
+  await expect(page.getByRole("button", { name: "Back to conversations" })).toBeVisible();
+});
+
 test("keeps a global unread badge in sync while the Messages view is hidden", async ({ page, request }) => {
   await request.post("/__test/reset", { data: { withMessages: true } });
   await page.goto("/");

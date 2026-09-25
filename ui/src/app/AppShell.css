@@ -13,6 +13,12 @@
   background: var(--color-canvas);
 }
 
+.app-shell.messages-route {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+
 .app-header {
   display: grid;
   grid-template-columns: 220px 1fr 220px;

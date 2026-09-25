@@ -199,7 +199,20 @@ function resetContactsScenario(withContacts) {
   if (withContacts) durable.protocol_info.capabilities.push("contacts");
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, withNotifications = false, withCalls = false, withContacts = false } = {}) {
+function expandLongMessages(enabled) {
+  if (!enabled || !messageThreads.length) return;
+
+  messageThreads.push(...Array.from({ length: 45 }, (_, index) => ({
+    thread: `tel:+155502${String(index).padStart(2, "0")}`, name: `Contact ${index + 1}`,
+    preview: `Conversation ${index + 1}`, timestamp: 1_700_000_000 - index, repliable: true,
+  })));
+  messageHistory.push(...Array.from({ length: 80 }, (_, index) => ({
+    handle: `message-${index + 2}`, thread: "tel:+15550102", body: `Test message ${index + 2}`,
+    timestamp: 1_700_000_300 + index * 300, outgoing: index % 2 === 0, read: true,
+  })));
+}
+
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, longMessages, withNotifications = false, withCalls = false, withContacts = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
@@ -209,6 +222,7 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   uploads.clear();
   messageThreads = withMessages ? [{ thread: "tel:+15550102", name: "Ada", address: "+15550102", preview: "See you soon", timestamp: 1_700_000_000, unread: 1, repliable: true }] : [];
   messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
+  expandLongMessages(longMessages);
   resetNotificationScenario(withMessages, withNotifications);
   durable.bt_status = baseBluetoothStatus();
   setPhonePaired([paired, withMessages, withNotifications, withCalls, withContacts].some(Boolean));
