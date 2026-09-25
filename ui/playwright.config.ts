@@ -10,8 +10,9 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "node e2e/fake-gateway.mjs",
-    url: "http://127.0.0.1:4173/healthz",
+    command: "node e2e/fake-tetherd.mjs",
+    url: "http://127.0.0.1:4173/readyz",
+    timeout: 90_000,
     reuseExistingServer: false,
   },
   projects: [

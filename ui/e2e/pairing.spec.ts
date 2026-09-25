@@ -1,4 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page, type Route } from "@playwright/test";
+
+// Only failure-path UI tests intercept a browser request. All ordinary
+// commands, events, uploads, and assets go through the real Go gateway.
+async function failNextCommand(page: Page, command: string) {
+  const matcher = "**/api/v1/commands";
+
+  const handler = async (route: Route) => {
+    if (route.request().postDataJSON()?.command !== command) {
+      await route.continue();
+
+      return;
+    }
+
+    await route.fulfill({ status: 503, body: "tetherd is unavailable" });
+    await page.unroute(matcher, handler);
+  };
+
+  await page.route(matcher, handler);
+}
 
 declare global {
   interface Window {
@@ -6,12 +25,17 @@ declare global {
   }
 }
 
+async function resetScenario(request: APIRequestContext, options: Record<string, boolean> = {}) {
+  const response = await request.post("http://127.0.0.1:4174/__test/reset", { data: options });
+  expect(response.status()).toBe(204); // The Go gateway observed the fresh socket snapshot.
+}
+
 test.beforeEach(async ({ request }) => {
-  await request.post("/__test/reset", { data: {} });
+  await resetScenario(request);
 });
 
 test("reads and replies to an iPhone conversation", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withMessages: true } });
+  await resetScenario(request, { withMessages: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Messages" }).click();
   await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
@@ -26,7 +50,7 @@ test("reads and replies to an iPhone conversation", async ({ page, request }) =>
 test("keeps long conversations in two independent viewport-height scroll panes", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "Desktop uses the side-by-side conversation layout");
   await page.setViewportSize({ width: 1882, height: 1876 });
-  await request.post("/__test/reset", { data: { withMessages: true, longMessages: true } });
+  await resetScenario(request, { withMessages: true, longMessages: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Messages" }).click();
   await page.getByRole("button", { name: /Ada See you soon/ }).click();
@@ -83,7 +107,7 @@ test("keeps long conversations in two independent viewport-height scroll panes",
 
 test("opens a long mobile conversation at the latest message without page scrolling", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "Mobile shows one messages pane at a time");
-  await request.post("/__test/reset", { data: { withMessages: true, longMessages: true } });
+  await resetScenario(request, { withMessages: true, longMessages: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Messages" }).click();
   const threads = page.locator(".messages-threads");
@@ -99,7 +123,7 @@ test("opens a long mobile conversation at the latest message without page scroll
 });
 
 test("keeps a global unread badge in sync while the Messages view is hidden", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withMessages: true } });
+  await resetScenario(request, { withMessages: true });
   await page.goto("/");
   const messages = page.getByRole("button", { name: "Messages" });
   await expect(messages).toBeVisible();
@@ -133,7 +157,7 @@ test("opt-in browser alerts redact iPhone content and ignore repeated events", a
 
     Object.defineProperty(window, "Notification", { value: BrowserAlert });
   });
-  await request.post("/__test/reset", { data: { paired: true, withNotifications: true } });
+  await resetScenario(request, { paired: true, withNotifications: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
   const alerts = page.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ });
@@ -141,17 +165,17 @@ test("opt-in browser alerts redact iPhone content and ignore repeated events", a
   await alerts.click();
   await expect(alerts).toBeChecked();
   expect(await page.evaluate(() => window.__tetherTestAlerts)).toEqual([]);
-  const response = await request.post("/__test/emit-notification", { data: { uid: 101, title: "Secret title", body: "Secret body" } });
+  const response = await request.post("http://127.0.0.1:4174/__test/emit-notification", { data: { uid: 101, title: "Secret title", body: "Secret body" } });
   expect(response.status()).toBe(204);
   await expect.poll(() => page.evaluate(() => window.__tetherTestAlerts)).toEqual([
     { title: "New iPhone notification", body: "Open Tether to view it." },
   ]);
-  await request.post("/__test/emit-notification", { data: { uid: 101, title: "Secret duplicate" } });
+  await request.post("http://127.0.0.1:4174/__test/emit-notification", { data: { uid: 101, title: "Secret duplicate" } });
   expect(await page.evaluate(() => window.__tetherTestAlerts)).toHaveLength(1);
 });
 
 test("searches iPhone contacts and opens an existing or new message thread", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withMessages: true, withContacts: true } });
+  await resetScenario(request, { withMessages: true, withContacts: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Contacts" }).click();
   await expect(page.getByRole("heading", { name: "Contacts" })).toBeVisible();
@@ -174,7 +198,7 @@ test("searches iPhone contacts and opens an existing or new message thread", asy
 });
 
 test("changes host settings without treating them as browser-only preferences", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { paired: true } });
+  await resetScenario(request, { paired: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
@@ -203,7 +227,7 @@ test("changes host settings without treating them as browser-only preferences", 
 });
 
 test("lists and dismisses an iPhone notification", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withNotifications: true } });
+  await resetScenario(request, { withNotifications: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Notifications" }).click();
   await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
@@ -218,7 +242,7 @@ test("lists and dismisses an iPhone notification", async ({ page, request }) => 
 });
 
 test("controls iPhone calls without claiming browser audio", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withCalls: true } });
+  await resetScenario(request, { withCalls: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Calls" }).click();
   await expect(page.getByRole("button", { name: "Calls" })).toBeInViewport({ ratio: 0.98 });
@@ -274,7 +298,7 @@ test("reports a rejected numeric comparison", async ({ page }) => {
 });
 
 test("forgets a bonded iPhone after confirmation", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { paired: true } });
+  await resetScenario(request, { paired: true });
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Someone’s iPhone" })).toBeVisible();
@@ -287,7 +311,7 @@ test("forgets a bonded iPhone after confirmation", async ({ page, request }) => 
 });
 
 test("discovers a Wi-Fi peer after connecting to tetherd", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { discoverPeer: true } });
+  await resetScenario(request, { discoverPeer: true });
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Nearby phone" })).toBeVisible();
@@ -295,7 +319,7 @@ test("discovers a Wi-Fi peer after connecting to tetherd", async ({ page, reques
 });
 
 test("approves and forgets a Wi-Fi peer", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withPeer: true } });
+  await resetScenario(request, { withPeer: true });
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "Nearby phone" })).toBeVisible();
@@ -308,7 +332,7 @@ test("approves and forgets a Wi-Fi peer", async ({ page, request }) => {
 });
 
 test("sends a browser file to a trusted peer", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withPeer: true } });
+  await resetScenario(request, { withPeer: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Approve and trust" }).click();
   await expect(page.getByRole("heading", { name: "Send files" })).toBeVisible();
@@ -324,7 +348,7 @@ test("sends a browser file to a trusted peer", async ({ page, request }) => {
 });
 
 test("sends a batch sequentially", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withPeer: true } });
+  await resetScenario(request, { withPeer: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Approve and trust" }).click();
   await page.getByLabel("Choose files to send").setInputFiles([
@@ -336,7 +360,7 @@ test("sends a batch sequentially", async ({ page, request }) => {
 });
 
 test("accepts multiple dropped files and reports skipped non-file items", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withPeer: true } });
+  await resetScenario(request, { withPeer: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Approve and trust" }).click();
   await page.locator(".file-drop-zone").evaluate((zone) => {
@@ -349,7 +373,7 @@ test("accepts multiple dropped files and reports skipped non-file items", async 
 });
 
 test("guides Bluetooth setup and permission recovery", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { paired: true, bluetoothSetup: true } });
+  await resetScenario(request, { paired: true, bluetoothSetup: true });
   await page.goto("/");
 
   await expect(page.getByText("Compatibility mode — messages and contacts, no notification mirroring.")).toBeVisible();
@@ -368,9 +392,9 @@ test("guides Bluetooth setup and permission recovery", async ({ page, request })
 });
 
 test("recovers a Bluetooth control after a gateway failure", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { paired: true, bluetoothSetup: true } });
+  await resetScenario(request, { paired: true, bluetoothSetup: true });
   await page.goto("/");
-  await request.post("/__test/fail-next-command", { data: { command: "bt_set_enabled" } });
+  await failNextCommand(page, "bt_set_enabled");
 
   const enabled = page.getByRole("checkbox", { name: /Connect to this iPhone/ });
   await enabled.click();
@@ -379,14 +403,14 @@ test("recovers a Bluetooth control after a gateway failure", async ({ page, requ
   await expect(enabled).toBeChecked();
   await expect(enabled).toBeEnabled();
 
-  await request.post("/__test/fail-next-command", { data: { command: "bt_solicit" } });
+  await failNextCommand(page, "bt_solicit");
   await page.getByRole("button", { name: "Show iPhone Permissions" }).click();
   await expect(page.getByText("Could not ask the iPhone for permissions.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Show iPhone Permissions" })).toBeEnabled();
 });
 
 test("manages connected AirPods", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { withAirPods: true } });
+  await resetScenario(request, { withAirPods: true });
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "AirPods Pro" })).toBeVisible();
@@ -405,7 +429,7 @@ test("manages connected AirPods", async ({ page, request }) => {
 });
 
 test("keeps device controls and dialogs usable at the configured viewport", async ({ page, request }) => {
-  await request.post("/__test/reset", { data: { paired: true, bluetoothSetup: true } });
+  await resetScenario(request, { paired: true, bluetoothSetup: true });
   await page.goto("/");
 
   const viewport = page.viewportSize();
@@ -433,7 +457,7 @@ test("keeps device controls and dialogs usable at the configured viewport", asyn
 
 test("surfaces a gateway command failure", async ({ page, request }) => {
   await page.goto("/");
-  await request.post("/__test/fail-next-command", { data: { command: "bt_scan" } });
+  await failNextCommand(page, "bt_scan");
 
   await page.getByRole("button", { name: "Scan for iPhone", exact: true }).last().click();
 

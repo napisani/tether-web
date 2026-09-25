@@ -46,8 +46,8 @@ Every batch is independently usable and follows this sequence:
 1. Inspect upstream GTK and daemon behavior.
 2. Record the existing protocol surface and browser-specific differences.
 3. Implement the smallest browser change.
-4. Add applicable Go, TypeScript, parser, reducer, component, fake-gateway,
-   Playwright, accessibility, reconnect, and responsive coverage.
+4. Add applicable Go, TypeScript, parser, reducer, component, real-gateway
+   Playwright (with a fake Unix-socket daemon), accessibility, reconnect, and responsive coverage.
 5. Run Go formatting, `go vet`, Go race tests, Vitest, TypeScript/Vite build,
    desktop/mobile Playwright, container build/runtime smoke, and `git diff --check`.
 6. Run Luna multi-valued review, remediate defensible findings, and rerun affected

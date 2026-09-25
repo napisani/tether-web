@@ -60,15 +60,19 @@ ui/src/daemon/        browser transport
 ui/src/views/         feature state and presentation
 ```
 
+`ui/src/app/daemonLifecycle.ts` owns event ordering and daemon-loss coordination: both a stream error and `gateway_status(false)` run the same feature cleanup once per connected session. Feature hooks still own their state, commands, and disconnect semantics. `ui/src/protocolSchemas.ts` validates incoming and outgoing shapes; `ui/src/protocol.ts` derives named browser types from those schemas rather than maintaining another field list.
+
+Browser tests use the compiled Go gateway against a fake newline-delimited daemon on a temporary Unix socket. Scenario control runs on a separate loopback test port, never through a production route. Only deliberate browser failure-path tests intercept individual requests; ordinary tests exercise real HTTP, SSE, upload staging, and socket framing.
+
 ## Adding a feature
 
 A browser feature should normally require:
 
 1. An existing [`tetherd` command/event](https://github.com/zackb/tether/blob/main/src/core/src/net.cpp) and its advertised capability, where one exists. A new upstream command or event is an exception subject to the protocol-change threshold above.
-2. A concrete shape in `ui/src/protocol.ts`.
+2. A validated shape in `ui/src/protocolSchemas.ts`, with browser types derived in `ui/src/protocol.ts`.
 3. A matching `ui/src/views/<feature>/<Feature>View.tsx` module.
 4. Feature-owned state reduction and commands.
-5. Reducer, component, and fake-gateway browser tests.
+5. Reducer and component tests, plus browser tests through the real Go gateway and a fake Unix-socket daemon (`ui/e2e/fake-tetherd.mjs`).
 6. An update to [UI_PARITY.md](UI_PARITY.md).
 
 Do not add routes such as `/api/v1/messages` or `/api/v1/contacts`. Those would duplicate the daemon interface and create a second domain implementation.

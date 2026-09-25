@@ -1,26 +1,27 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
-import { extname, join } from "node:path";
+import { createServer as createUnixServer } from "node:net";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
-const dist = fileURLToPath(new URL("../../cmd/tether-web/dist", import.meta.url));
+const repo = fileURLToPath(new URL("../..", import.meta.url));
 
-const clients = new Set();
+const sandbox = mkdtempSync(join(tmpdir(), "tether-web-e2e-"));
+
+const socketPath = join(sandbox, "tetherd.sock");
+
+const binary = join(sandbox, "tether-web");
+
+const sockets = new Set();
 
 const timers = new Set();
 
-const history = [];
-
-let nextEventId = 0;
-
-let failNextCommand;
+let scenarioEpoch = 0;
 
 let discoverablePeers = [];
-
-// The real gateway multiplexes every browser tab onto one owned tetherd socket,
-// so uploads are process-global here rather than owned by individual HTTP clients.
-const uploads = new Map();
 
 let messageThreads = [];
 
@@ -31,10 +32,6 @@ let phoneContacts = [];
 let phoneNotifications = [];
 
 let phoneCalls = [];
-
-const maxUploadBytes = 256 * 1024 * 1024;
-
-const maxChunkBytes = 48 * 1024;
 
 const phone = {
   address: "40:F6:64:3D:7A:F1",
@@ -215,11 +212,7 @@ function expandLongMessages(enabled) {
 function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, longMessages, withNotifications = false, withCalls = false, withContacts = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
-  history.length = 0;
-  nextEventId = 0;
-  failNextCommand = undefined;
   discoverablePeers = discoverPeer || withPeer ? [peer] : [];
-  uploads.clear();
   messageThreads = withMessages ? [{ thread: "tel:+15550102", name: "Ada", address: "+15550102", preview: "See you soon", timestamp: 1_700_000_000, unread: 1, repliable: true }] : [];
   messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
   expandLongMessages(longMessages);
@@ -229,6 +222,9 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   resetCallsScenario(withCalls);
   resetContactsScenario(withContacts);
   durable.state_snapshot = emptyStateSnapshot();
+  // This snapshot is the last sorted durable frame, so its epoch is a barrier
+  // for all earlier status frames before the next browser navigates.
+  durable.state_snapshot.test_epoch = ++scenarioEpoch;
 
   if (bluetoothSetup && paired) {
     durable.bt_status.capability = {
@@ -301,35 +297,21 @@ function later(callback, delay) {
   timers.add(timer);
 }
 
-function frame(event, id) {
-  const idLine = id ? `id: ${id}\n` : "";
-
-  return `${idLine}data: ${JSON.stringify(event)}\n\n`;
-}
-
+// The test adapter speaks tetherd's newline-delimited JSON on a Unix socket.
+// The production Go gateway owns HTTP, SSE, upload staging, and event replay.
 function publish(event) {
   if (Object.hasOwn(durable, event.command)) durable[event.command] = event;
-  const streamed = { id: ++nextEventId, event: structuredClone(event) };
-  history.push(streamed);
+  const line = `${JSON.stringify(event)}\n`;
 
-  if (history.length > 256) history.shift();
-  const data = frame(streamed.event, streamed.id);
-
-  for (const response of clients) response.write(data);
+  for (const socket of sockets) socket.write(line);
 }
 
-function writeSnapshot(response) {
-  response.write(frame({ command: "gateway_status", daemon_connected: true }));
-
-  for (const command of Object.keys(durable).sort()) response.write(frame(durable[command]));
+function publishSnapshot() {
+  for (const command of Object.keys(durable).sort()) publish(durable[command]);
 }
 
 function handleCommand(command) {
-  return commandHandlers[command.command]?.(command);
-}
-
-function respondToCommand(response, command) {
-  response.writeHead(handleCommand(command) === false ? 409 : 202).end();
+  commandHandlers[command.command]?.(command);
 }
 
 const commandHandlers = {
@@ -351,15 +333,13 @@ const commandHandlers = {
     durable.state_snapshot.connected_clients = [];
     publish({ command: "forget_device_result", fingerprint: command.fingerprint, forgotten: true });
   },
-  file_upload_start: handleUploadStart,
-  file_upload_chunk: handleUploadChunk,
-  file_upload_finish: handleUploadFinish,
-  file_upload_cancel: (command) => {
-    const upload = uploads.get(command.operation_id);
-
-    if (!upload || upload.sending) return false;
-    uploads.delete(command.operation_id);
-  },
+  send_file: (command) => later(() => {
+    // Reading the staged path checks that the real gateway finished writing it.
+    if (!command.operation_id || !existsSync(command.path)) return;
+    readFileSync(command.path);
+    publish({ command: "file_send_complete", operation_id: command.operation_id,
+      filename: basename(command.path), success: true, message: "File sent." });
+  }, 20),
   bt_scan: () => {
     later(() => publish({ command: "bt_devices", devices: [phone] }), 20);
     later(() => {
@@ -498,54 +478,6 @@ const commandHandlers = {
   }, 20),
 };
 
-function handleUploadStart(command) {
-  const validId = typeof command.operation_id === "string" && command.operation_id.length <= 128 &&
-    /^[A-Za-z0-9_.-]+$/.test(command.operation_id) && command.operation_id !== "." && command.operation_id !== "..";
-
-  const validSize = Number.isSafeInteger(command.size) && command.size >= 0 && command.size <= maxUploadBytes;
-
-  const success = validId && validSize && typeof command.filename === "string" && command.filename.length > 0 &&
-    !uploads.has(command.operation_id) && uploads.size < 2;
-
-  if (success) uploads.set(command.operation_id, { filename: command.filename, size: command.size, bytes: 0, nextChunk: 0, sending: false });
-
-  return success;
-}
-
-function handleUploadChunk(command) {
-  const upload = uploads.get(command.operation_id);
-
-  const validBase64 = typeof command.data === "string" && command.data.length > 0 && command.data.length % 4 === 0 &&
-    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(command.data);
-
-  const bytes = validBase64 ? Buffer.from(command.data, "base64").byteLength : 0;
-  const valid = upload && !upload.sending && upload.nextChunk === command.chunk_index && bytes > 0 && bytes <= maxChunkBytes && upload.bytes + bytes <= upload.size;
-
-  if (valid) {
-    upload.bytes += bytes;
-    upload.nextChunk += 1;
-
-    return true;
-  }
-
-  return false;
-}
-
-function handleUploadFinish(command) {
-  const upload = uploads.get(command.operation_id);
-  const success = Boolean(upload && !upload.sending && upload.bytes === upload.size);
-
-  if (!success) return false;
-
-  upload.sending = true;
-  later(() => {
-    uploads.delete(command.operation_id);
-    publish({ command: "file_send_complete", operation_id: command.operation_id, filename: upload.filename, success: true, message: "File sent." });
-  }, 20);
-
-  return true;
-}
-
 function finishPairing(command) {
   if (!command.accept) {
     publish({ command: "bt_pair_result", operation_id: command.operation_id, success: false, status: "rejected", message: "Pairing was cancelled." });
@@ -575,99 +507,112 @@ async function readJSON(request) {
   }
 }
 
-function isTestPost(request, path) {
-  return request.url === path && request.method === "POST";
+async function waitForScenario(epoch) {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    try {
+      const response = await fetch("http://127.0.0.1:4173/api/v1/state", { signal: AbortSignal.timeout(500) });
+      const state = await response.json();
+
+      if (state.daemon_connected && state.events.state_snapshot?.test_epoch === epoch) return;
+    } catch { /* The gateway may be connecting to the fake daemon. */ }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error("gateway did not observe the fresh test scenario");
 }
 
-async function emitTestNotification(request, response) {
-  const body = await readJSON(request);
-
-  if (!Number.isSafeInteger(body.uid) || body.uid < 0) {
-    response.writeHead(400).end();
+// Control traffic is deliberately on a different loopback port: browser
+// requests still reach the actual gateway with its production HTTP behavior.
+const control = createServer(async (request, response) => {
+  if (request.method !== "POST") {
+    response.writeHead(405).end();
 
     return;
   }
 
-  publish({ command: "bt_notification", uid: body.uid, title: "Secret title", body: "Secret body" });
-  response.writeHead(204).end();
-}
-
-const server = createServer(async (request, response) => {
-  if (request.url === "/__test/reset" && request.method === "POST") {
+  if (request.url === "/__test/reset") {
     reset(await readJSON(request));
-    response.writeHead(204).end();
+    publishSnapshot();
 
-    return;
-  }
-
-  if (isTestPost(request, "/__test/emit-notification")) {
-    await emitTestNotification(request, response);
-
-    return;
-  }
-
-  if (isTestPost(request, "/__test/fail-next-command")) {
-    const body = await readJSON(request);
-    failNextCommand = body.command || "*";
-    response.writeHead(204).end();
-
-    return;
-  }
-
-  if (request.url === "/api/v1/state") {
-    response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-    response.end(JSON.stringify({ daemon_connected: true, events: durable }));
-
-    return;
-  }
-
-  if (request.url === "/api/v1/events") {
-    response.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
-    const lastEventId = Number(request.headers["last-event-id"] ?? 0);
-
-    if (lastEventId) {
-      for (const streamed of history) {
-        if (streamed.id > lastEventId) response.write(frame(streamed.event, streamed.id));
-      }
+    try {
+      await waitForScenario(scenarioEpoch);
+      response.writeHead(204).end();
+    } catch (error) {
+      console.error(error);
+      response.writeHead(503).end();
     }
 
-    writeSnapshot(response);
-    clients.add(response);
-    request.on("close", () => clients.delete(response));
-
     return;
   }
 
-  if (request.url === "/api/v1/commands" && request.method === "POST") {
-    const command = await readJSON(request);
+  if (request.url === "/__test/emit-notification") {
+    const body = await readJSON(request);
 
-    if (failNextCommand === "*" || failNextCommand === command.command) {
-      failNextCommand = undefined;
-      response.writeHead(503).end();
+    if (!Number.isSafeInteger(body.uid) || body.uid < 0) {
+      response.writeHead(400).end();
 
       return;
     }
 
-    respondToCommand(response, command);
+    publish({ command: "bt_notification", uid: body.uid, title: "Secret title", body: "Secret body" });
+    response.writeHead(204).end();
 
     return;
   }
 
-  const requested = request.url === "/" ? "index.html" : request.url.slice(1);
-  let path = join(dist, requested);
-
-  if (!existsSync(path) || statSync(path).isDirectory()) path = join(dist, "index.html");
-  const contentTypes = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
-  response.writeHead(200, { "Content-Type": contentTypes[extname(path)] ?? "application/octet-stream" });
-  createReadStream(path).pipe(response);
+  response.writeHead(404).end();
 });
+
+const build = spawnSync("go", ["build", "-o", binary, "./cmd/tether-web"], { cwd: repo, stdio: "inherit" });
+
+if (build.status !== 0) {
+  rmSync(sandbox, { recursive: true, force: true });
+  process.exit(build.status || 1);
+}
 
 reset();
 
-server.listen(4173, "127.0.0.1");
+const daemon = createUnixServer((socket) => {
+  sockets.add(socket);
+  socket.on("close", () => sockets.delete(socket));
+  let buffer = "";
+  socket.on("data", (chunk) => {
+    buffer += chunk.toString("utf8");
+    let end = buffer.indexOf("\n");
 
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => server.close(() => process.exit(0)));
+    while (end !== -1) {
+      const line = buffer.slice(0, end);
+      buffer = buffer.slice(end + 1);
+
+      try { handleCommand(JSON.parse(line)); } catch (error) { console.error("bad daemon command", error); }
+
+      end = buffer.indexOf("\n");
+    }
+  });
+  publishSnapshot();
+});
+
+daemon.listen(socketPath);
+
+control.listen(4174, "127.0.0.1");
+
+const gateway = spawn(binary, [], { env: { ...process.env, TETHER_WEB_LISTEN: "127.0.0.1:4173", TETHER_SOCKET_PATH: socketPath }, stdio: "inherit" });
+
+let stopping = false;
+
+function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  gateway.kill("SIGTERM");
+  control.close();
+  daemon.close();
+  setTimeout(() => { rmSync(sandbox, { recursive: true, force: true }); process.exit(0); }, 1500).unref();
+}
+
+gateway.on("exit", (code) => {
+  rmSync(sandbox, { recursive: true, force: true });
+  process.exit(stopping ? 0 : code || 1);
+});
+
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, shutdown);
