@@ -33,8 +33,11 @@ Two established exceptions illustrate the threshold:
 
 - external numeric-comparison pairing needs operation correlation so a
   conforming client only presents and answers the confirmation it initiated;
-- browsers cannot supply daemon-host paths to `send_file`, so bounded daemon-side
-  staging is required before reusing the existing send path.
+- browsers cannot supply daemon-host paths to `send_file`, so the Go gateway
+  stages bounded bytes on a shared, daemon-visible volume before invoking the
+  existing send path. An optional send result ID is reviewed separately;
+- message sends need an optional result ID to avoid mistaking another client's
+  global `bt_send_result` for this tab's confirmation.
 
 ## Batch delivery contract
 
@@ -86,9 +89,9 @@ PR #211 remains unchanged at its existing committed head.
 - Send sequentially through the existing browser-upload protocol.
 - Show current item, batch progress, failures, skipped items, and final tally.
 - Define cancellation and clear queues on disconnect/unmount.
-- Defer **Send Clipboard** until the app-wide web authentication design and
-  response-confirmation semantics are approved; the existing uncorrelated
-  `clipboard_content` broadcast is not safe to treat as a request result.
+- Defer **Send Clipboard** until cross-client event visibility and
+  response-confirmation semantics are approved; HTTP Basic protects access but
+  the uncorrelated `clipboard_content` broadcast cannot prove request ownership.
 - Show accurate compositor/clipboard availability guidance.
 
 This batch should not require C++ changes.
@@ -148,7 +151,15 @@ Before declaring parity complete:
 
 ## Current execution boundary
 
-Batch 1 is deployed. Batch 2's multi-file queue is implemented locally. Send
-Clipboard is deferred pending a separately approved app-wide security design
-and a trustworthy completion signal. Remaining batches require separate
-authorization.
+Batches 1–5 are implemented and deployed to the homelab from pinned core and
+web stack tips; Messages passed user-led phone testing. Notifications and Calls
+still await physical-phone ANCS and HFP validation. Batch 6 Contacts is
+implemented on a stacked web branch with no core changes; it needs physical-phone
+PBAP validation before claiming hardware parity. Batch 7 Settings is committed on a stacked web branch with no core changes;
+desktop-only preferences have documented non-equivalents. Batch 8 implements
+shared unread refresh, browser-safe shortcuts, capability-aware Calls navigation,
+opt-in browser-only alert preferences, and reconnect/privacy handling in a
+further stacked web branch. Browser tests simulate Notification permissions and
+ANCS events; physical-phone PBAP, ANCS, and HFP validation remains outstanding.
+Send Clipboard is deferred pending app-wide security and trustworthy completion
+semantics. Each new deployment needs separate approval.

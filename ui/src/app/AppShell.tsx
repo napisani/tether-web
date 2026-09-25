@@ -1,26 +1,37 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import "./AppShell.css";
+
+export type AppRoute = "devices" | "messages" | "notifications" | "calls" | "contacts" | "settings";
 
 export function AppShell({
   children,
+  route,
+  onNavigate,
   daemonConnected,
   bluetoothAvailable,
   wifiConnected,
   wifiAvailable,
   phoneConnected,
+  unreadCount,
+  showCalls,
   version,
 }: {
   children: ReactNode;
+  route: AppRoute;
+  onNavigate: (route: AppRoute) => void;
   daemonConnected: boolean;
   bluetoothAvailable: boolean;
   wifiConnected: boolean;
   wifiAvailable: boolean;
   phoneConnected: boolean;
+  unreadCount: number;
+  showCalls: boolean;
   version?: string;
 }) {
   return (
     <div className="app-shell">
-      <AppHeader connected={phoneConnected || wifiConnected} />
+      <AppHeader connected={phoneConnected || wifiConnected} route={route} onNavigate={onNavigate}
+        unreadCount={unreadCount} showCalls={showCalls} />
       {children}
       <RouteStatusBar
         daemonConnected={daemonConnected}
@@ -34,19 +45,43 @@ export function AppShell({
   );
 }
 
-function AppHeader({ connected }: { connected: boolean }) {
+function AppHeader({ connected, route, onNavigate, unreadCount, showCalls }: {
+  connected: boolean;
+  route: AppRoute;
+  onNavigate: (route: AppRoute) => void;
+  unreadCount: number;
+  showCalls: boolean;
+}) {
+  const nav = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [route]);
+
   return (
     <header className="app-header">
       <div className="brand" aria-label="Tether">
         <span className="brand-mark" aria-hidden="true">T</span>
         <span>Tether</span>
       </div>
-      <nav className="primary-nav" aria-label="Primary navigation">
-        <span className="nav-item active">Devices</span>
-        <span className="nav-item future" title="Available in a future web release">Messages</span>
-        <span className="nav-item future" title="Available in a future web release">Notifications</span>
-        <span className="nav-item future" title="Available in a future web release">Calls</span>
-        <span className="nav-item future" title="Available in a future web release">Contacts</span>
+      <nav className="primary-nav" aria-label="Primary navigation" ref={nav}>
+        <button type="button" className={`nav-item ${route === "devices" ? "active" : ""}`}
+          aria-current={route === "devices" ? "page" : undefined} onClick={() => onNavigate("devices")}>Devices</button>
+        <button type="button" className={`nav-item ${route === "messages" ? "active" : ""}`}
+          aria-current={route === "messages" ? "page" : undefined}
+          aria-describedby={unreadCount > 0 ? "messages-nav-unread" : undefined}
+          onClick={() => onNavigate("messages")}>Messages
+          {unreadCount > 0 && <span className="nav-unread" aria-hidden="true">{unreadCount}</span>}
+        </button>
+        {unreadCount > 0 && <span id="messages-nav-unread" className="sr-only">{unreadCount} unread messages</span>}
+        <button type="button" className={`nav-item ${route === "notifications" ? "active" : ""}`}
+          aria-current={route === "notifications" ? "page" : undefined} onClick={() => onNavigate("notifications")}>Notifications</button>
+        <button type="button" className={`nav-item ${route === "contacts" ? "active" : ""}`}
+          aria-current={route === "contacts" ? "page" : undefined} onClick={() => onNavigate("contacts")}>Contacts</button>
+        {showCalls && <button type="button" className={`nav-item ${route === "calls" ? "active" : ""}`}
+          aria-current={route === "calls" ? "page" : undefined} onClick={() => onNavigate("calls")}>Calls</button>}
+        <button type="button" className={`nav-item ${route === "settings" ? "active" : ""}`}
+          aria-current={route === "settings" ? "page" : undefined} onClick={() => onNavigate("settings")}>Settings</button>
       </nav>
       <span
         className={`presence-dot ${connected ? "online" : ""}`}

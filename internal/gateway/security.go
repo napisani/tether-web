@@ -1,12 +1,45 @@
 package gateway
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"net"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 )
+
+type BasicCredentials struct {
+	Username string
+	Password string
+}
+
+func requireBrowserAuth(next http.Handler, credentials *BasicCredentials) http.Handler {
+	if credentials == nil {
+		return next
+	}
+	usernameHash := sha256.Sum256([]byte(credentials.Username))
+	passwordHash := sha256.Sum256([]byte(credentials.Password))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") && r.Method == http.MethodGet {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		username, password, ok := r.BasicAuth()
+		providedUsername := sha256.Sum256([]byte(username))
+		providedPassword := sha256.Sum256([]byte(password))
+		validUsername := subtle.ConstantTimeCompare(providedUsername[:], usernameHash[:])
+		validPassword := subtle.ConstantTimeCompare(providedPassword[:], passwordHash[:])
+		if !ok || validUsername&validPassword != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Tether", charset="UTF-8"`)
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

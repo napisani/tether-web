@@ -36,6 +36,11 @@ export const bluetoothStatusEventSchema = open({
   available: z.boolean(),
   enabled: optionalBoolean,
   ancs_enabled: optionalBoolean,
+  ancs_content_enabled: optionalBoolean,
+  retention: z.enum(["encrypted", "plaintext", "none"]).optional(),
+  retention_ready: optionalBoolean,
+  desktop_popups_enabled: optionalBoolean,
+  lock_on_away: optionalBoolean,
   capability: bluetoothCapabilitySchema.nullable().optional(),
   error: optionalString,
   version: optionalString,
@@ -95,6 +100,11 @@ export const bluetoothConnectionEventSchema = open({
   link_reason: optionalString,
   profile_reason: optionalString,
   ancs_reason: optionalString,
+  calls: open({
+    available: z.boolean(), reason: optionalString, audio: optionalString, indicators: optionalBoolean,
+    operator: optionalString, service: optionalBoolean, signal: z.number().optional(),
+    roaming: optionalBoolean, battery: z.number().optional(),
+  }).nullable().optional(),
   last_error: optionalString,
   remedy: optionalString,
 });
@@ -238,14 +248,6 @@ const forgetPeerResultEventSchema = open({
   forgotten: z.boolean(),
 });
 
-const fileUploadStartedEventSchema = open({
-  command: z.literal("file_upload_started"),
-  operation_id: z.string().min(1),
-  filename: optionalString,
-  success: z.boolean(),
-  message: optionalString,
-});
-
 const fileSendCompleteEventSchema = open({
   command: z.literal("file_send_complete"),
   operation_id: z.string().min(1),
@@ -291,6 +293,84 @@ const airPodsModeResultEventSchema = open({
   message: optionalString,
 });
 
+const messageThreadSchema = open({
+  thread: z.string().min(1),
+  name: optionalString,
+  address: optionalString,
+  preview: optionalString,
+  timestamp: z.number().optional(),
+  unread: z.number().int().nonnegative().optional(),
+  group: optionalBoolean,
+  repliable: optionalBoolean,
+  reply_reason: optionalString,
+});
+
+const textMessageSchema = {
+  handle: z.string(),
+  thread: z.string().min(1),
+  body: z.string(),
+  timestamp: z.number(),
+  outgoing: z.boolean(),
+  read: z.boolean(),
+  folder: optionalString,
+};
+
+const threadListEventSchema = open({ command: z.literal("bt_threads"), threads: z.array(messageThreadSchema) });
+
+const messageListEventSchema = open({ command: z.literal("bt_messages"), thread: z.string().min(1), messages: z.array(open(textMessageSchema)) });
+
+const newMessageEventSchema = open({ command: z.literal("bt_message"), ...textMessageSchema });
+
+const messageSendResultEventSchema = open({
+  command: z.literal("bt_send_result"), operation_id: operationId,
+  thread: z.string().min(1), success: z.boolean(), message: optionalString,
+});
+
+const messageReadEventSchema = open({ command: z.literal("bt_message_read"), handles: z.array(z.string()),
+  read: z.boolean(), success: z.boolean(), message: optionalString });
+
+const contactListEventSchema = open({
+  command: z.literal("bt_contacts"), query: z.string(),
+  contacts: z.array(open({ name: z.string(), addresses: z.array(z.string().min(1)) })),
+});
+
+const notificationUid = z.number().int().min(0).max(4_294_967_295);
+
+const notificationFields = {
+  uid: notificationUid,
+  app_id: optionalString,
+  app_name: optionalString,
+  title: optionalString,
+  subtitle: optionalString,
+  body: optionalString,
+  category: z.number().int().optional(),
+  timestamp: z.number().finite().optional(),
+  silent: optionalBoolean,
+  positive_action: optionalBoolean,
+  negative_action: optionalBoolean,
+};
+
+const notificationListEventSchema = open({ command: z.literal("bt_notifications"),
+  notifications: z.array(open(notificationFields)) });
+
+const newNotificationEventSchema = open({ command: z.literal("bt_notification"), ...notificationFields });
+
+const notificationRemovedEventSchema = open({ command: z.literal("bt_notification_removed"), uid: notificationUid });
+
+const notificationActionResultEventSchema = open({ command: z.literal("bt_notification_action_result"),
+  uid: notificationUid, success: z.boolean() });
+
+const phoneCallSchema = open({
+  path: z.string().min(1), number: optionalString, name: optionalString, state: optionalString,
+  withheld: optionalBoolean, ringing: optionalBoolean, connected: optionalBoolean,
+  outgoing: optionalBoolean, incoming_line: optionalString, multiparty: optionalBoolean,
+});
+
+const callListEventSchema = open({ command: z.literal("bt_calls"), calls: z.array(phoneCallSchema) });
+
+const callResultEventSchema = open({ command: z.literal("bt_call_result"),
+  action: z.string(), success: z.boolean(), message: optionalString });
+
 const gatewayStatusEventSchema = open({
   command: z.literal("gateway_status"),
   operation_id: operationId,
@@ -318,12 +398,23 @@ export const daemonEventSchema = z.discriminatedUnion("command", [
   peerRejectedEventSchema,
   peerAcceptedEventSchema,
   forgetPeerResultEventSchema,
-  fileUploadStartedEventSchema,
   fileSendCompleteEventSchema,
   airPodsEventSchema,
   airPodsConnectResultEventSchema,
   airPodsModeResultEventSchema,
   gatewayStatusEventSchema,
+  threadListEventSchema,
+  messageListEventSchema,
+  newMessageEventSchema,
+  messageSendResultEventSchema,
+  messageReadEventSchema,
+  contactListEventSchema,
+  notificationListEventSchema,
+  newNotificationEventSchema,
+  notificationRemovedEventSchema,
+  notificationActionResultEventSchema,
+  callListEventSchema,
+  callResultEventSchema,
 ]);
 
 export const daemonCommandSchema = z.discriminatedUnion("command", [
@@ -334,6 +425,10 @@ export const daemonCommandSchema = z.discriminatedUnion("command", [
   open({ command: z.literal("bt_unpair"), address: z.string().min(1), operation_id: z.string().min(1) }),
   open({ command: z.literal("bt_pair_confirm"), operation_id: z.string().min(1), accept: z.boolean() }),
   open({ command: z.literal("bt_set_enabled"), enabled: z.boolean() }),
+  open({ command: z.literal("bt_set_ancs"), enabled: z.boolean() }),
+  open({ command: z.literal("bt_set_ancs_content"), enabled: z.boolean() }),
+  open({ command: z.literal("bt_set_calls"), enabled: z.boolean() }),
+  open({ command: z.literal("bt_set_retention"), retention: z.enum(["encrypted", "plaintext", "none"]) }),
   open({ command: z.literal("bt_solicit") }),
   open({ command: z.literal("bt_airpods_enable"), enabled: z.boolean() }),
   open({ command: z.literal("bt_airpods_pause"), mode: airPodsPauseSchema }),
@@ -348,6 +443,18 @@ export const daemonCommandSchema = z.discriminatedUnion("command", [
   open({ command: z.literal("file_upload_chunk"), operation_id: z.string().min(1), chunk_index: z.number().int().nonnegative(), data: z.string().min(1) }),
   open({ command: z.literal("file_upload_finish"), operation_id: z.string().min(1) }),
   open({ command: z.literal("file_upload_cancel"), operation_id: z.string().min(1) }),
+  open({ command: z.literal("bt_list_threads") }),
+  open({ command: z.literal("bt_list_messages"), thread: z.string().min(1) }),
+  open({ command: z.literal("bt_list_contacts"), query: z.string(), limit: z.number().int().positive().optional() }),
+  open({ command: z.literal("bt_mark_read"), handles: z.array(z.string().min(1)).min(1), read: z.literal(true) }),
+  open({ command: z.literal("bt_send_message"), thread: z.string().min(1), body: z.string().min(1), operation_id: z.string().min(1) }),
+  open({ command: z.literal("bt_list_notifications") }),
+  open({ command: z.literal("bt_notification_action"), uid: notificationUid, action: z.literal("negative") }),
+  open({ command: z.literal("protocol_info") }),
+  open({ command: z.literal("bt_list_calls") }),
+  open({ command: z.literal("bt_call_dial"), number: z.string().min(1).max(256) }),
+  open({ command: z.literal("bt_call_action"),
+    action: z.enum(["answer", "hangup", "audio_here", "audio_phone"]), path: optionalString }),
 ]);
 
 export const commandBodySchema = daemonCommandSchema;

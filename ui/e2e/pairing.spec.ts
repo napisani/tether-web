@@ -1,7 +1,165 @@
 import { expect, test } from "@playwright/test";
 
+declare global {
+  interface Window {
+    __tetherTestAlerts: Array<{ title: string; body?: string }>;
+  }
+}
+
 test.beforeEach(async ({ request }) => {
   await request.post("/__test/reset", { data: {} });
+});
+
+test("reads and replies to an iPhone conversation", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withMessages: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Messages" }).click();
+  await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
+  await page.getByRole("button", { name: /Ada See you soon/ }).click();
+  await expect(page.getByLabel("Received: See you soon")).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("On my way");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByLabel("Sent: On my way")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
+});
+
+test("keeps a global unread badge in sync while the Messages view is hidden", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withMessages: true } });
+  await page.goto("/");
+  const messages = page.getByRole("button", { name: "Messages" });
+  await expect(messages).toBeVisible();
+  await expect(messages.locator(".nav-unread")).toHaveText("1");
+  await expect(page.locator("#messages-nav-unread")).toHaveCSS("clip-path", "inset(50%)");
+  await messages.click();
+  await page.getByRole("button", { name: /Ada See you soon/ }).click();
+  await expect(messages.locator(".nav-unread")).toHaveCount(0);
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Messages" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Notifications" })).toBeFocused();
+});
+
+test("opt-in browser alerts redact iPhone content and ignore repeated events", async ({ page, request }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "isSecureContext", { value: true });
+    Object.defineProperty(document, "visibilityState", { get: () => "hidden" });
+    window.__tetherTestAlerts = [];
+
+    class BrowserAlert {
+      static permission = "granted";
+      static requestPermission() { return Promise.resolve("granted"); }
+      onclick: (() => void) | null = null;
+      constructor(title: string, options: NotificationOptions) {
+        window.__tetherTestAlerts.push({ title, body: options.body });
+      }
+      close() {}
+    }
+
+    Object.defineProperty(window, "Notification", { value: BrowserAlert });
+  });
+  await request.post("/__test/reset", { data: { paired: true, withNotifications: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const alerts = page.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ });
+  await expect(alerts).not.toBeChecked();
+  await alerts.click();
+  await expect(alerts).toBeChecked();
+  expect(await page.evaluate(() => window.__tetherTestAlerts)).toEqual([]);
+  const response = await request.post("/__test/emit-notification", { data: { uid: 101, title: "Secret title", body: "Secret body" } });
+  expect(response.status()).toBe(204);
+  await expect.poll(() => page.evaluate(() => window.__tetherTestAlerts)).toEqual([
+    { title: "New iPhone notification", body: "Open Tether to view it." },
+  ]);
+  await request.post("/__test/emit-notification", { data: { uid: 101, title: "Secret duplicate" } });
+  expect(await page.evaluate(() => window.__tetherTestAlerts)).toHaveLength(1);
+});
+
+test("searches iPhone contacts and opens an existing or new message thread", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withMessages: true, withContacts: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Contacts" }).click();
+  await expect(page.getByRole("heading", { name: "Contacts" })).toBeVisible();
+  await expect(page.getByText("Grace")).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search contacts" }).fill("ada@example");
+  await expect(page.getByText("Ada", { exact: true })).toBeVisible();
+  await expect(page.getByText("Grace")).not.toBeVisible();
+  await page.getByText("Ada", { exact: true }).click();
+  await page.getByRole("button", { name: "Message +15550102" }).click();
+  await expect(page.getByRole("heading", { name: "Ada" })).toBeVisible();
+  await expect(page.getByLabel("Received: See you soon")).toBeVisible();
+  await expect(page.getByLabel("To", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Contacts" }).click();
+  await page.getByRole("searchbox", { name: "Search contacts" }).fill("Grace");
+  await page.getByText("Grace", { exact: true }).click();
+  await page.getByRole("button", { name: "Message +15550103" }).click();
+  await expect(page.getByRole("heading", { name: "Grace" })).toBeVisible();
+  await expect(page.getByLabel("To", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+});
+
+test("changes host settings without treating them as browser-only preferences", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { paired: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByText(/affect every Tether client/)).toBeVisible();
+  const mirror = page.getByRole("switch", { name: /Mirror iPhone notifications/ });
+  const content = page.getByRole("switch", { name: /Include notification text/ });
+  await expect(mirror).toBeChecked();
+  await mirror.click();
+  await expect(mirror).not.toBeChecked();
+  await expect(content).toBeDisabled();
+  await mirror.click();
+  await expect(content).toBeEnabled();
+  await content.click();
+  await expect(content).not.toBeChecked();
+  const retention = page.getByRole("combobox", { name: "Keep message history" });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await retention.selectOption("none");
+  await expect(retention).toHaveValue("encrypted");
+  page.once("dialog", (dialog) => dialog.accept());
+  await retention.selectOption("plaintext");
+  await expect(retention).toHaveValue("plaintext");
+  await expect(page.getByText(/readable on the tetherd host/)).toBeVisible();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(retention).toHaveValue("plaintext");
+  await expect(page.getByText(/have no browser equivalent/)).toBeVisible();
+});
+
+test("lists and dismisses an iPhone notification", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withNotifications: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Notifications" }).click();
+  await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
+  await expect(page.getByText("A letter")).toBeVisible();
+  await expect(page.getByText("Hello from your iPhone")).toBeVisible();
+  await expect(page.getByText("Appointment")).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss Mail notification on iPhone" }).click();
+  await expect(page.getByText("A letter")).not.toBeVisible();
+  await expect(page.getByText("Appointment")).toBeVisible();
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByText("Appointment")).toBeVisible();
+});
+
+test("controls iPhone calls without claiming browser audio", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withCalls: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Calls" }).click();
+  await expect(page.getByRole("button", { name: "Calls" })).toBeInViewport({ ratio: 0.98 });
+  await expect(page.getByText("Ada")).toBeVisible();
+  await expect(page.getByText("Withheld number")).toBeVisible();
+  await expect(page.getByText(/not in this browser/)).toBeVisible();
+  await page.getByRole("button", { name: "Answer call from Ada" }).click();
+  await expect(page.getByRole("button", { name: "Hang up call with Ada" })).toBeVisible();
+  await page.getByRole("button", { name: "Audio on tetherd host" }).click();
+  await expect(page.getByRole("button", { name: "Audio on iPhone" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Number to call" }).fill("+15550109");
+  await page.getByRole("button", { name: "Call", exact: true }).click();
+  await expect(page.getByText("+15550109")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check iPhone" })).toBeDisabled();
+  await page.getByRole("button", { name: "Hang up call with Ada" }).click();
+  await expect(page.getByText("Ada")).not.toBeVisible();
 });
 
 test("pairs an iPhone through the guided browser flow", async ({ page }) => {

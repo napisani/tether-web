@@ -394,7 +394,7 @@ describe("guided pairing view", () => {
     renderDevicesView({
       daemon: {
         ...pairedDaemon,
-        protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files.upload"] },
+        protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files"] },
       },
       state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
       fileTransfer,
@@ -441,7 +441,7 @@ describe("guided pairing view", () => {
     renderDevicesView({
       daemon: {
         ...pairedDaemon,
-        protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files.upload"] },
+        protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files"] },
       },
       state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
       fileTransfer: {

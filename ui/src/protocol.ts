@@ -26,6 +26,11 @@ export interface BluetoothStatusEvent extends DaemonEventBase {
   available: boolean;
   enabled?: boolean;
   ancs_enabled?: boolean;
+  ancs_content_enabled?: boolean;
+  retention?: "encrypted" | "plaintext" | "none";
+  retention_ready?: boolean;
+  desktop_popups_enabled?: boolean;
+  lock_on_away?: boolean;
   capability?: BluetoothCapability | null;
   error?: string;
   version?: string;
@@ -83,6 +88,7 @@ export interface BluetoothConnectionEvent extends DaemonEventBase {
   link_reason?: string;
   profile_reason?: string;
   ancs_reason?: string;
+  calls?: CallConnectionStatus | null;
   last_error?: string;
   remedy?: string;
 }
@@ -248,18 +254,144 @@ export type PeerLifecycleEvent =
   | PeerAcceptedEvent
   | ForgetPeerResultEvent;
 
-export interface FileUploadStartedEvent extends DaemonEventBase {
-  command: "file_upload_started";
+export interface FileSendCompleteEvent extends DaemonEventBase {
+  command: "file_send_complete";
   operation_id: string;
   filename?: string;
   success: boolean;
   message?: string;
 }
 
-export interface FileSendCompleteEvent extends DaemonEventBase {
-  command: "file_send_complete";
-  operation_id: string;
-  filename?: string;
+export interface MessageThread extends JsonRecord {
+  thread: string;
+  name?: string;
+  address?: string;
+  preview?: string;
+  timestamp?: number;
+  unread?: number;
+  group?: boolean;
+  repliable?: boolean;
+  reply_reason?: string;
+}
+
+export interface ThreadListEvent extends DaemonEventBase {
+  command: "bt_threads";
+  threads: MessageThread[];
+}
+
+export interface TextMessage extends JsonRecord {
+  handle: string;
+  thread: string;
+  body: string;
+  timestamp: number;
+  outgoing: boolean;
+  read: boolean;
+  folder?: string;
+}
+
+export interface MessageListEvent extends DaemonEventBase {
+  command: "bt_messages";
+  thread: string;
+  messages: TextMessage[];
+}
+
+export interface NewMessageEvent extends DaemonEventBase, TextMessage {
+  command: "bt_message";
+}
+
+export interface MessageSendResultEvent extends DaemonEventBase {
+  command: "bt_send_result";
+  thread: string;
+  success: boolean;
+  message?: string;
+}
+
+export interface MessageReadEvent extends DaemonEventBase {
+  command: "bt_message_read";
+  handles: string[];
+  read: boolean;
+  success: boolean;
+  message?: string;
+}
+
+export interface ContactSuggestion extends JsonRecord {
+  name: string;
+  addresses: string[];
+}
+
+export interface ContactListEvent extends DaemonEventBase {
+  command: "bt_contacts";
+  query: string;
+  contacts: ContactSuggestion[];
+}
+
+export interface PhoneNotification extends JsonRecord {
+  uid: number;
+  app_id?: string;
+  app_name?: string;
+  title?: string;
+  subtitle?: string;
+  body?: string;
+  category?: number;
+  timestamp?: number;
+  silent?: boolean;
+  positive_action?: boolean;
+  negative_action?: boolean;
+}
+
+export interface NotificationListEvent extends DaemonEventBase {
+  command: "bt_notifications";
+  notifications: PhoneNotification[];
+}
+
+export interface NewNotificationEvent extends DaemonEventBase, PhoneNotification {
+  command: "bt_notification";
+}
+
+export interface NotificationRemovedEvent extends DaemonEventBase {
+  command: "bt_notification_removed";
+  uid: number;
+}
+
+export interface NotificationActionResultEvent extends DaemonEventBase {
+  command: "bt_notification_action_result";
+  uid: number;
+  success: boolean;
+}
+
+export interface PhoneCall extends JsonRecord {
+  path: string;
+  number?: string;
+  name?: string;
+  state?: string;
+  withheld?: boolean;
+  ringing?: boolean;
+  connected?: boolean;
+  outgoing?: boolean;
+  incoming_line?: string;
+  multiparty?: boolean;
+}
+
+export interface CallConnectionStatus extends JsonRecord {
+  available: boolean;
+  reason?: string;
+  audio?: string;
+  indicators?: boolean;
+  operator?: string;
+  service?: boolean;
+  signal?: number;
+  roaming?: boolean;
+  battery?: number;
+}
+
+export interface CallListEvent extends DaemonEventBase {
+  command: "bt_calls";
+  calls: PhoneCall[];
+}
+
+export interface CallResultEvent extends DaemonEventBase {
+  command: "bt_call_result";
+  action: string;
   success: boolean;
   message?: string;
 }
@@ -284,8 +416,19 @@ export type DaemonEvent =
   | DiscoveryResultEvent
   | MdnsStatusEvent
   | PeerLifecycleEvent
-  | FileUploadStartedEvent
   | FileSendCompleteEvent
+  | ThreadListEvent
+  | MessageListEvent
+  | NewMessageEvent
+  | MessageSendResultEvent
+  | MessageReadEvent
+  | ContactListEvent
+  | NotificationListEvent
+  | NewNotificationEvent
+  | NotificationRemovedEvent
+  | NotificationActionResultEvent
+  | CallListEvent
+  | CallResultEvent
   | GatewayStatusEvent;
 
 export interface BluetoothScanCommand extends JsonRecord {
@@ -351,6 +494,8 @@ export interface ForgetPeerCommand extends JsonRecord {
   fingerprint: string;
 }
 
+// Gateway transport commands: stage bytes on the shared runtime volume, then
+// forward one daemon send_file with the same operation ID.
 export interface FileUploadStartCommand extends JsonRecord {
   command: "file_upload_start";
   operation_id: string;
@@ -401,6 +546,73 @@ export interface AirPodsConnectCommand extends JsonRecord {
   connect: boolean;
 }
 
+export interface ListThreadsCommand extends JsonRecord {
+  command: "bt_list_threads";
+}
+
+export interface ListMessagesCommand extends JsonRecord {
+  command: "bt_list_messages";
+  thread: string;
+}
+
+export interface ListContactsCommand extends JsonRecord {
+  command: "bt_list_contacts";
+  query: string;
+  limit?: number;
+}
+
+export interface MarkMessagesReadCommand extends JsonRecord {
+  command: "bt_mark_read";
+  handles: string[];
+  read: true;
+}
+
+export interface SendMessageCommand extends JsonRecord {
+  command: "bt_send_message";
+  thread: string;
+  body: string;
+  operation_id: string;
+}
+
+export interface ListNotificationsCommand extends JsonRecord {
+  command: "bt_list_notifications";
+}
+
+export interface DismissNotificationCommand extends JsonRecord {
+  command: "bt_notification_action";
+  uid: number;
+  action: "negative";
+}
+
+export interface ProtocolInfoCommand extends JsonRecord {
+  command: "protocol_info";
+}
+
+export interface BluetoothSetAncsCommand extends JsonRecord {
+  command: "bt_set_ancs" | "bt_set_ancs_content" | "bt_set_calls";
+  enabled: boolean;
+}
+
+export interface BluetoothSetRetentionCommand extends JsonRecord {
+  command: "bt_set_retention";
+  retention: "encrypted" | "plaintext" | "none";
+}
+
+export interface ListCallsCommand extends JsonRecord {
+  command: "bt_list_calls";
+}
+
+export interface DialCallCommand extends JsonRecord {
+  command: "bt_call_dial";
+  number: string;
+}
+
+export interface CallActionCommand extends JsonRecord {
+  command: "bt_call_action";
+  action: "answer" | "hangup" | "audio_here" | "audio_phone";
+  path?: string;
+}
+
 export type DaemonCommand =
   | BluetoothScanCommand
   | BluetoothStatusCommand
@@ -409,6 +621,8 @@ export type DaemonCommand =
   | BluetoothUnpairCommand
   | BluetoothPairConfirmationCommand
   | BluetoothSetEnabledCommand
+  | BluetoothSetAncsCommand
+  | BluetoothSetRetentionCommand
   | BluetoothSolicitCommand
   | AirPodsEnableCommand
   | AirPodsPauseCommand
@@ -422,7 +636,18 @@ export type DaemonCommand =
   | FileUploadStartCommand
   | FileUploadChunkCommand
   | FileUploadFinishCommand
-  | FileUploadCancelCommand;
+  | FileUploadCancelCommand
+  | ListThreadsCommand
+  | ListMessagesCommand
+  | ListContactsCommand
+  | MarkMessagesReadCommand
+  | SendMessageCommand
+  | ListNotificationsCommand
+  | DismissNotificationCommand
+  | ProtocolInfoCommand
+  | ListCallsCommand
+  | DialCallCommand
+  | CallActionCommand;
 
 export interface GatewayState {
   daemon_connected: boolean;

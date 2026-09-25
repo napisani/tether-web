@@ -44,6 +44,55 @@ func TestCommandEndpointRejectsUntrustedBrowserRequests(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedGatewayProtectsCommandsAndPrivateEvents(t *testing.T) {
+	bus := &fakeBus{ready: true}
+	handler := gateway.NewHandler(bus, testAssets(), gateway.Config{Auth: &gateway.BasicCredentials{
+		Username: "owner", Password: "a-long-private-password",
+	}})
+	for _, path := range []string{"/", "/api/v1/state", "/api/v1/events"} {
+		request := httptest.NewRequest(http.MethodGet, "http://localhost"+path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized || response.Header().Get("WWW-Authenticate") == "" {
+			t.Fatalf("%s: status = %d, challenge = %q", path, response.Code, response.Header().Get("WWW-Authenticate"))
+		}
+	}
+	for _, test := range []struct {
+		name     string
+		username string
+		password string
+		status   int
+	}{
+		{name: "anonymous", status: http.StatusUnauthorized},
+		{name: "bad password", username: "owner", password: "bad-password", status: http.StatusUnauthorized},
+		{name: "valid", username: "owner", password: "a-long-private-password", status: http.StatusAccepted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/commands",
+				strings.NewReader(`{"command":"bt_call_dial","number":"+15550100"}`))
+			request.Header.Set("Content-Type", "application/json")
+			if test.username != "" {
+				request.SetBasicAuth(test.username, test.password)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d", response.Code, test.status)
+			}
+		})
+	}
+	if len(bus.commands) != 1 {
+		t.Fatalf("forwarded commands = %d, want 1", len(bus.commands))
+	}
+	for _, path := range []string{"/healthz", "/readyz"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost"+path, nil))
+		if response.Code == http.StatusUnauthorized {
+			t.Fatalf("%s requires browser credentials", path)
+		}
+	}
+}
+
 func TestHandlerSetsBrowserSecurityHeaders(t *testing.T) {
 	handler := gateway.NewHandler(&fakeBus{}, testAssets(), gateway.Config{})
 	request := httptest.NewRequest(http.MethodGet, "http://tether.test/", nil)

@@ -51,19 +51,30 @@
 
 .nav-item {
   padding: 12px 22px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
   border-radius: 9px;
   color: var(--color-text-muted);
   font-weight: 600;
+}
+
+.nav-unread {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .nav-item.active {
   background: color-mix(in srgb, var(--color-surface-selected) 84%, var(--color-text-muted));
   box-shadow: inset 0 1px color-mix(in srgb, white 5%, transparent);
   color: var(--color-text);
-}
-
-.nav-item.future {
-  opacity: 0.42;
 }
 
 .presence-dot {
@@ -145,11 +156,5 @@
   .version {
     width: 100%;
     margin-left: 0;
-  }
-}
-
-@media (max-width: 520px) {
-  .nav-item.future {
-    display: none;
   }
 }

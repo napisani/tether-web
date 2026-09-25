@@ -65,7 +65,8 @@ export function DevicesView({
   const pairingAvailable = daemon.protocol?.capabilities.includes("bluetooth.pairing") === true;
   const bluetoothControlAvailable = daemon.protocol?.capabilities.includes("bluetooth.connection") === true;
   const peerDiscoveryAvailable = daemon.protocol?.capabilities.includes("peers") === true;
-  const fileUploadAvailable = daemon.protocol?.capabilities.includes("files.upload") === true;
+  // Browser bytes are staged by the gateway; tetherd only needs send_file.
+  const fileUploadAvailable = daemon.protocol?.capabilities.includes("files") === true;
   const bluetoothAvailable = state.bluetooth?.available ?? false;
 
   const isConfiguredDevice = Boolean(

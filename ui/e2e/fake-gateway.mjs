@@ -22,6 +22,16 @@ let discoverablePeers = [];
 // so uploads are process-global here rather than owned by individual HTTP clients.
 const uploads = new Map();
 
+let messageThreads = [];
+
+let messageHistory = [];
+
+let phoneContacts = [];
+
+let phoneNotifications = [];
+
+let phoneCalls = [];
+
 const maxUploadBytes = 256 * 1024 * 1024;
 
 const maxChunkBytes = 48 * 1024;
@@ -63,7 +73,7 @@ const durable = {
   protocol_info: {
     command: "protocol_info",
     version: 1,
-    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files.upload", "peers"],
+    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers", "settings"],
   },
   bt_status: baseBluetoothStatus(),
   bt_devices: { command: "bt_devices", devices: [] },
@@ -77,6 +87,11 @@ function baseBluetoothStatus() {
     available: true,
     enabled: true,
     ancs_enabled: true,
+    ancs_content_enabled: true,
+    retention: "encrypted",
+    retention_ready: true,
+    desktop_popups_enabled: true,
+    lock_on_away: false,
     device_address: "",
     version: "0.2.32-e2e",
     capability: { mode: "full", reasons: [], setup: [] },
@@ -146,7 +161,45 @@ function setPhonePaired(paired) {
   durable.bt_connection_changed = paired ? connectedConnection() : disconnectedConnection();
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false } = {}) {
+function resetNotificationScenario(withMessages, withNotifications) {
+  phoneNotifications = withNotifications ? [
+    { uid: 42, app_id: "com.example.mail", app_name: "Mail", title: "A letter", subtitle: "Sender",
+      body: "Hello from your iPhone", timestamp: 1_700_000_000, negative_action: true },
+    { uid: 43, app_id: "com.example.calendar", app_name: "Calendar", body: "Appointment",
+      timestamp: 1_700_000_020, negative_action: false },
+  ] : [];
+  durable.protocol_info.capabilities = ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers", "settings"];
+
+  if (withMessages) durable.protocol_info.capabilities.push("messages");
+
+  if (withNotifications) durable.protocol_info.capabilities.push("notifications");
+}
+
+function resetCallsScenario(withCalls) {
+  phoneCalls = withCalls ? [
+    { path: "/call/1", name: "Ada", number: "+15550102", state: "incoming", ringing: true },
+    { path: "/call/2", number: "", withheld: true, state: "active", connected: true },
+  ] : [];
+  durable.bt_status.calls_enabled = withCalls;
+
+  if (withCalls) {
+    durable.protocol_info.capabilities.push("calls");
+    durable.bt_connection_changed = { ...durable.bt_connection_changed,
+      calls: { available: true, reason: "Calls are controlled here; audio plays on the iPhone.",
+        audio: "idle", indicators: true, operator: "Carrier", signal: 4, battery: 3, service: true } };
+  }
+}
+
+function resetContactsScenario(withContacts) {
+  phoneContacts = withContacts ? [
+    { name: "Ada", addresses: ["tel:+15550102", "email:ada@example.com"] },
+    { name: "Grace", addresses: ["tel:+15550103"] },
+  ] : [];
+
+  if (withContacts) durable.protocol_info.capabilities.push("contacts");
+}
+
+function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, withNotifications = false, withCalls = false, withContacts = false } = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   history.length = 0;
@@ -154,8 +207,13 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   failNextCommand = undefined;
   discoverablePeers = discoverPeer || withPeer ? [peer] : [];
   uploads.clear();
+  messageThreads = withMessages ? [{ thread: "tel:+15550102", name: "Ada", address: "+15550102", preview: "See you soon", timestamp: 1_700_000_000, unread: 1, repliable: true }] : [];
+  messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
+  resetNotificationScenario(withMessages, withNotifications);
   durable.bt_status = baseBluetoothStatus();
-  setPhonePaired(paired);
+  setPhonePaired([paired, withMessages, withNotifications, withCalls, withContacts].some(Boolean));
+  resetCallsScenario(withCalls);
+  resetContactsScenario(withContacts);
   durable.state_snapshot = emptyStateSnapshot();
 
   if (bluetoothSetup && paired) {
@@ -253,10 +311,16 @@ function writeSnapshot(response) {
 }
 
 function handleCommand(command) {
-  commandHandlers[command.command]?.(command);
+  return commandHandlers[command.command]?.(command);
+}
+
+function respondToCommand(response, command) {
+  response.writeHead(handleCommand(command) === false ? 409 : 202).end();
 }
 
 const commandHandlers = {
+  protocol_info: () => later(() => publish(durable.protocol_info), 10),
+  bt_status: () => later(() => publish(durable.bt_status), 10),
   discover: () => later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10),
   accept_device: () => {
     durable.state_snapshot.pending_pairs = [];
@@ -279,7 +343,8 @@ const commandHandlers = {
   file_upload_cancel: (command) => {
     const upload = uploads.get(command.operation_id);
 
-    if (upload && !upload.sending) uploads.delete(command.operation_id);
+    if (!upload || upload.sending) return false;
+    uploads.delete(command.operation_id);
   },
   bt_scan: () => {
     later(() => publish({ command: "bt_devices", devices: [phone] }), 20);
@@ -297,7 +362,96 @@ const commandHandlers = {
     durable.bt_status.enabled = command.enabled;
     publish(durable.bt_status);
   },
+  bt_set_ancs: (command) => {
+    durable.bt_status.ancs_enabled = command.enabled;
+    publish(durable.bt_status);
+  },
+  bt_set_ancs_content: (command) => {
+    durable.bt_status.ancs_content_enabled = command.enabled;
+    publish(durable.bt_status);
+  },
+  bt_set_calls: (command) => {
+    durable.bt_status.calls_enabled = command.enabled;
+    durable.protocol_info.capabilities = durable.protocol_info.capabilities.filter((item) => item !== "calls");
+
+    if (command.enabled) durable.protocol_info.capabilities.push("calls");
+    publish(durable.bt_status);
+  },
+  bt_set_retention: (command) => {
+    durable.bt_status.retention = command.retention;
+    publish(durable.bt_status);
+  },
   bt_solicit: () => later(() => publish({ command: "bt_solicit_result", success: true, message: "Asked the iPhone to re-offer notification access." }), 20),
+  bt_list_threads: () => later(() => publish({ command: "bt_threads", threads: messageThreads }), 10),
+  bt_list_messages: (command) => later(() => publish({ command: "bt_messages", thread: command.thread, messages: messageHistory.filter((item) => item.thread === command.thread) }), 10),
+  bt_list_contacts: (command) => later(() => {
+    const query = (command.query || "").toLowerCase();
+    const available = query && !phoneContacts.length ? [{ name: "Ada", addresses: ["tel:+15550102"] }] : phoneContacts;
+    publish({ command: "bt_contacts", query: command.query || "",
+      contacts: available.filter((item) => `${item.name} ${item.addresses.join(" ")}`.toLowerCase().includes(query)).slice(0, command.limit || 5000) });
+  }, 10),
+  bt_mark_read: (command) => later(() => {
+    messageHistory = messageHistory.map((item) => command.handles.includes(item.handle) ? { ...item, read: true } : item);
+    messageThreads = messageThreads.map((item) => ({ ...item, unread: 0 }));
+    publish({ command: "bt_message_read", handles: command.handles, read: command.read, success: true });
+  }, 10),
+  bt_list_notifications: () => later(() => publish({ command: "bt_notifications", notifications: phoneNotifications }), 10),
+  bt_list_calls: () => later(() => publish({ command: "bt_calls", calls: phoneCalls }), 10),
+  bt_call_dial: (command) => later(() => {
+    if (!command.number?.trim()) {
+      publish({ command: "bt_call_result", action: "dial", success: false, message: "Not a dialable number." });
+
+      return;
+    }
+
+    phoneCalls.push({ path: `/call/${phoneCalls.length + 1}`, number: command.number,
+      state: "dialing", outgoing: true });
+    publish({ command: "bt_call_result", action: "dial", success: true });
+    publish({ command: "bt_calls", calls: phoneCalls });
+  }, 20),
+  bt_call_action: (command) => later(() => {
+    const call = phoneCalls.find((item) => item.path === command.path);
+
+    const valid = command.action === "audio_here" || command.action === "audio_phone" ||
+      Boolean(call && (command.action === "hangup" || (command.action === "answer" && call.ringing)));
+
+    const result = { command: "bt_call_result", action: command.action, success: valid };
+
+    if (!valid) result.message = "That call is no longer active.";
+    publish(result);
+
+    if (!valid) return;
+
+    if (command.action === "answer") Object.assign(call, { state: "active", ringing: false, connected: true });
+
+    if (command.action === "hangup") phoneCalls = phoneCalls.filter((item) => item.path !== command.path);
+
+    if (command.action === "audio_here" || command.action === "audio_phone") {
+      durable.bt_connection_changed.calls.audio = command.action === "audio_here" ? "active" : "idle";
+      publish(durable.bt_connection_changed);
+    }
+
+    publish({ command: "bt_calls", calls: phoneCalls });
+  }, 20),
+  bt_notification_action: (command) => {
+    if (command.action !== "negative" || !phoneNotifications.some((item) => item.uid === command.uid && item.negative_action)) return false;
+
+    later(() => {
+      publish({ command: "bt_notification_action_result", uid: command.uid, success: true });
+      phoneNotifications = phoneNotifications.filter((item) => item.uid !== command.uid);
+      publish({ command: "bt_notification_removed", uid: command.uid });
+    }, 20);
+  },
+  bt_send_message: (command) => later(() => {
+    const message = { command: "bt_message", handle: `sent-${messageHistory.length}`, thread: command.thread,
+      body: command.body, timestamp: Math.floor(Date.now() / 1000), outgoing: true, read: true };
+
+    messageHistory.push(message);
+    messageThreads = messageThreads.map((item) => item.thread === command.thread
+      ? { ...item, preview: command.body, timestamp: message.timestamp } : item);
+    publish(message);
+    publish({ command: "bt_send_result", thread: command.thread, operation_id: command.operation_id, success: true });
+  }, 20),
   bt_airpods_connect: (command) => later(() => {
     airpods.connected = command.connect;
     durable.bt_devices = { command: "bt_devices", devices: [airpods] };
@@ -340,7 +494,8 @@ function handleUploadStart(command) {
     !uploads.has(command.operation_id) && uploads.size < 2;
 
   if (success) uploads.set(command.operation_id, { filename: command.filename, size: command.size, bytes: 0, nextChunk: 0, sending: false });
-  publish({ command: "file_upload_started", operation_id: command.operation_id, filename: command.filename, success, message: success ? undefined : "Upload rejected." });
+
+  return success;
 }
 
 function handleUploadChunk(command) {
@@ -356,23 +511,25 @@ function handleUploadChunk(command) {
     upload.bytes += bytes;
     upload.nextChunk += 1;
 
-    return;
+    return true;
   }
 
-  uploads.delete(command.operation_id);
-  publish({ command: "file_send_complete", operation_id: command.operation_id, success: false, message: "Upload chunk rejected." });
+  return false;
 }
 
 function handleUploadFinish(command) {
   const upload = uploads.get(command.operation_id);
   const success = Boolean(upload && !upload.sending && upload.bytes === upload.size);
 
-  if (success) upload.sending = true;
-  else uploads.delete(command.operation_id);
+  if (!success) return false;
+
+  upload.sending = true;
   later(() => {
-    if (success) uploads.delete(command.operation_id);
-    publish({ command: "file_send_complete", operation_id: command.operation_id, filename: upload?.filename, success, message: success ? "File sent." : "The upload was incomplete." });
+    uploads.delete(command.operation_id);
+    publish({ command: "file_send_complete", operation_id: command.operation_id, filename: upload.filename, success: true, message: "File sent." });
   }, 20);
+
+  return true;
 }
 
 function finishPairing(command) {
@@ -404,6 +561,23 @@ async function readJSON(request) {
   }
 }
 
+function isTestPost(request, path) {
+  return request.url === path && request.method === "POST";
+}
+
+async function emitTestNotification(request, response) {
+  const body = await readJSON(request);
+
+  if (!Number.isSafeInteger(body.uid) || body.uid < 0) {
+    response.writeHead(400).end();
+
+    return;
+  }
+
+  publish({ command: "bt_notification", uid: body.uid, title: "Secret title", body: "Secret body" });
+  response.writeHead(204).end();
+}
+
 const server = createServer(async (request, response) => {
   if (request.url === "/__test/reset" && request.method === "POST") {
     reset(await readJSON(request));
@@ -412,7 +586,13 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.url === "/__test/fail-next-command" && request.method === "POST") {
+  if (isTestPost(request, "/__test/emit-notification")) {
+    await emitTestNotification(request, response);
+
+    return;
+  }
+
+  if (isTestPost(request, "/__test/fail-next-command")) {
     const body = await readJSON(request);
     failNextCommand = body.command || "*";
     response.writeHead(204).end();
@@ -458,8 +638,7 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    handleCommand(command);
-    response.writeHead(202).end();
+    respondToCommand(response, command);
 
     return;
   }

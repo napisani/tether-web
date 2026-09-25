@@ -11,6 +11,13 @@ export class DaemonCommandTimeoutError extends Error {
   }
 }
 
+export class DaemonCommandRejectedError extends Error {
+  constructor(status: number) {
+    super(`command failed: ${status}`);
+    this.name = "DaemonCommandRejectedError";
+  }
+}
+
 export type DaemonClientHandlers = {
   onConnectionChange: (connected: boolean) => void;
   onEvent: (event: DaemonEvent) => void;
@@ -60,5 +67,11 @@ export async function sendDaemonCommand(command: DaemonCommand) {
     throw error;
   }
 
-  if (!response.ok) throw new Error(`command failed: ${response.status}`);
+  if (!response.ok) {
+    if (response.headers.get("X-Tether-Upload-Outcome") === "not-forwarded") {
+      throw new DaemonCommandRejectedError(response.status);
+    }
+
+    throw new Error(`command failed: ${response.status}`);
+  }
 }

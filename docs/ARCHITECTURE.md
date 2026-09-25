@@ -27,7 +27,7 @@ The tested seams are:
 
 Upstream `tetherd` defines the authoritative command and event protocol. `tether-web` consumes that interface rather than designing a preferred protocol and pushing it into the daemon. Browser-local serialization, pending state, timeouts, and reconnect cleanup should absorb platform differences whenever they can do so safely.
 
-Before proposing an upstream change, verify the corresponding GTK flow and exercise the existing daemon commands and events. A protocol addition is justified only when the exposed interface cannot safely produce the GTK-equivalent outcome—for example, a browser cannot provide the daemon-host path required by `send_file`, and an external numeric-comparison response must be bound to the pairing operation that displayed it. Convenience, simpler reducers, or stronger correlation for globally observable status are not sufficient on their own.
+Before proposing an upstream change, verify the corresponding GTK flow and exercise the existing daemon commands and events. A protocol addition is justified only when the exposed interface cannot safely produce the GTK-equivalent outcome—for example, an external numeric-comparison response must be bound to the pairing operation that displayed it. Browser files can instead be staged by the gateway on a bounded, daemon-visible volume before using the existing `send_file` command. Convenience, simpler reducers, or stronger correlation for globally observable status are not sufficient on their own.
 
 A necessary upstream addition must be narrow, backward-compatible, separately reviewed in Tether, and free of unrelated GTK or daemon refactoring. Shared upstream bugs discovered here should normally be verified and fixed separately rather than folded into a web parity batch.
 
@@ -45,7 +45,7 @@ The Go gateway owns reconnection, fan-out, bounded replay, durable snapshots, HT
 
 Live events carry monotonic SSE IDs. A reconnecting `EventSource` can request events newer than its last ID, which preserves transient pairing progress and confirmation requests across short disconnects.
 
-External pairing and browser file-upload commands carry an `operation_id`; their result events echo it. A conforming browser tab ignores those operation events when it did not start the operation. Existing global Bluetooth supervision and permission-solicitation events retain their upstream semantics; the browser serializes its local controls and bounds their pending state without requiring a web-specific daemon protocol. File bytes travel as bounded JSON chunks and are staged by `tetherd`; the Go gateway does not inspect or persist them.
+External pairing commands carry an `operation_id` that the daemon echoes. Browser upload commands use an operation ID in the gateway's bounded staging transport; after staging, the gateway sends the existing `send_file` command with that optional ID, and the daemon echoes it in `file_send_complete`. A browser tab ignores results for other operations. Existing global Bluetooth supervision and permission-solicitation events retain their upstream semantics; the browser serializes its local controls and bounds their pending state without requiring a web-specific daemon protocol. File bytes travel as bounded JSON chunks and are staged by the Go gateway in the shared disk-backed runtime volume. The daemon reads the staged file through `send_file`; the gateway deletes it after a matching terminal event or a bounded timeout. A rejected `file_upload_finish` carries `X-Tether-Upload-Outcome: not-forwarded` only when the gateway knows it never called `send_file`; the browser can fail that upload immediately. A missing response or unmarked failure may have reached the daemon, so the browser waits for its correlated result rather than retrying. No web container access to daemon data or downloads is required.
 
 `tetherd` emits `protocol_info` with a protocol version and capability groups. The browser hides controls until the daemon advertises the matching capability.
 
@@ -75,11 +75,9 @@ Do not add routes such as `/api/v1/messages` or `/api/v1/contacts`. Those would 
 
 ## Security boundary
 
-The browser API is powerful: it can submit daemon commands and receive private daemon events. The current service has no authentication.
+The browser API is powerful: it can submit daemon commands and receive private daemon events. The process defaults to `127.0.0.1:5135`, where local access needs no credentials. A non-loopback listener requires HTTP Basic credentials loaded from a password file; the gateway protects assets, state, events, and commands, while health probes remain available. A wildcard listener also requires an explicit Host allowlist. Remote traffic must use HTTPS; Host validation is not authentication, and credentials must be mounted from a secret rather than baked into the image or repository.
 
-The process therefore defaults to `127.0.0.1:5135`. A wildcard listener requires an explicit Host allowlist, but Host validation is not authentication. Expose the service remotely only behind an authenticating reverse proxy or within a deliberately trusted and firewalled network.
-
-Operation IDs provide correlation, not authorization. Every client that can read the event stream and submit commands is inside the same trust boundary; a malicious authorized client can replay a visible operation ID. The React client uses IDs to prevent accidental cross-tab state handling, while deployment authentication and access control remain responsible for excluding hostile clients.
+All authenticated browsers share the same daemon privileges; this remains a single-owner service. Operation IDs provide correlation, not authorization. A client with valid credentials can submit any supported daemon command. The React client uses IDs to avoid accidental cross-tab state handling where the daemon provides them. Global call results do not provide IDs, so the browser never uses them (or an arbitrary outgoing call) to complete a local dial.
 
 The gateway also:
 

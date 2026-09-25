@@ -93,16 +93,50 @@ describe("parseDaemonEvent", () => {
   it("rejects malformed file-transfer result events", () => {
     expect(parseDaemonEvent(JSON.stringify({ command: "file_send_complete", success: true }))).toBeUndefined();
     expect(parseDaemonEvent(JSON.stringify({
-      command: "file_upload_started",
-      operation_id: "upload-1",
-      success: "yes",
-    }))).toBeUndefined();
-    expect(parseDaemonEvent(JSON.stringify({
       command: "file_send_complete",
       operation_id: "upload-1",
       success: true,
       filename: "notes.txt",
     }))).toMatchObject({ command: "file_send_complete", operation_id: "upload-1" });
+  });
+
+  it("validates notification UIDs, lists, and action results", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notifications", notifications: [{ uid: -1 }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notifications", notifications: [{ uid: 42, title: 123 }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notification_removed", uid: "42" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notification_action_result", uid: 42, success: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notifications", notifications: [{ uid: 42, title: "Hello" }] })))
+      .toMatchObject({ command: "bt_notifications", notifications: [{ uid: 42, title: "Hello" }] });
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_notification_action_result", uid: 42, success: true })))
+      .toMatchObject({ command: "bt_notification_action_result", uid: 42, success: true });
+  });
+
+  it("validates daemon-owned settings without discarding legacy status events", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, retention: "erase" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, ancs_content_enabled: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, retention: "encrypted",
+      retention_ready: false, lock_on_away: true, desktop_popups_enabled: false })))
+      .toMatchObject({ retention: "encrypted", retention_ready: false, lock_on_away: true });
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true })))
+      .toMatchObject({ command: "bt_status", available: true });
+  });
+
+  it("validates Hands-Free status, call lists, and global action results", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_connection_changed", calls: { available: "yes" } }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_calls", calls: [{ state: "incoming" }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_call_result", action: "dial", success: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_calls", calls: [{ path: "/call/1", withheld: true, number: "" }] })))
+      .toMatchObject({ command: "bt_calls", calls: [{ path: "/call/1", withheld: true }] });
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_call_result", action: "dial", success: false, message: "No service." })))
+      .toMatchObject({ command: "bt_call_result", success: false });
+  });
+
+  it("validates Messages payloads before rendering them", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_threads", threads: [{ name: "Missing key" }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_messages", thread: "tel:+15550102", messages: [{ body: "Hi" }] }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_send_result", thread: "tel:+15550102", success: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_send_result", thread: "tel:+15550102", success: true, operation_id: "send-1" })))
+      .toMatchObject({ command: "bt_send_result", operation_id: "send-1" });
   });
 
   it("accepts complete peer lifecycle events, including pre-TLS rejection", () => {
@@ -122,6 +156,24 @@ describe("parseDaemonEvent", () => {
 });
 
 describe("sendDaemonCommand", () => {
+  it("rejects unsupported call actions before contacting tetherd", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendDaemonCommand({ command: "bt_call_action", action: "hold_and_answer" } as never))
+      .rejects.toThrow("invalid tetherd command");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported retention modes and accepts documented host commands", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendDaemonCommand({ command: "bt_set_retention", retention: "delete" } as never))
+      .rejects.toThrow("invalid tetherd command");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await sendDaemonCommand({ command: "bt_set_retention", retention: "none" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ command: "bt_set_retention", retention: "none" });
+  });
+
   it("aborts a stalled command and reports a timeout", async () => {
     const controller = new AbortController();
     vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
