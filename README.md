@@ -55,6 +55,8 @@ npm run dev
 
 ## Container
 
+For a complete **two-container Docker Compose deployment**, including building Tether core from a separate checkout, preparing host paths and credentials, and starting both services, follow [deploy/README.md](deploy/README.md) and its [Compose example](deploy/docker-compose.yml). The steps below run only the web image alongside an already-running daemon.
+
 The image contains only the static Go gateway and embedded browser assets. It does not include `tetherd`.
 
 ```bash

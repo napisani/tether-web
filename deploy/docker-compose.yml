@@ -1,0 +1,91 @@
+# Run from the tether-web repository root with:
+# docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+# Both containers must use the SAME host UID/GID and shared runtime directory.
+services:
+  tether:
+    image: tether-core:local
+    build:
+      context: ${TETHER_CORE_DIR:?Set an absolute path to the pinned Tether core checkout}
+      dockerfile: packaging/container/Dockerfile
+      target: runtime
+      args:
+        TETHER_VERSION: ${TETHER_VERSION:-0.2.32-container-dev}
+    hostname: ${TETHER_HOSTNAME:-tether}
+    user: "${TETHER_UID:?Set your non-root host UID}:${TETHER_GID:?Set your host GID}"
+    network_mode: host # Tether peer discovery and the existing 5134/tcp listener
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    stop_grace_period: 15s
+    environment:
+      TETHER_BLUEZ_SECURE_CONNECTIONS: ${TETHER_BLUEZ_SECURE_CONNECTIONS:?Confirm the host controller setting}
+    volumes:
+      - type: bind
+        source: ${TETHER_DATA_DIR:?Set an absolute private host data directory}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TETHER_DOWNLOADS_DIR:?Set an absolute host downloads directory}
+        target: /downloads
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TETHER_RUNTIME_DIR:?Set an absolute private host runtime directory}
+        target: /run/tether-runtime
+        bind:
+          create_host_path: false
+      # A read-only filesystem mount does NOT make host D-Bus calls read-only.
+      - type: bind
+        source: /run/dbus
+        target: /host/run/dbus
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  tether-web:
+    image: tether-web:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    user: "${TETHER_UID:?Set your non-root host UID}:${TETHER_GID:?Set your host GID}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    depends_on:
+      tether:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5135:5135" # Local browser or HTTPS reverse proxy only
+    environment:
+      TETHER_SOCKET_PATH: /run/tether-runtime/tether/tetherd.sock
+      TETHER_WEB_LISTEN: "0.0.0.0:5135" # Required inside the container for port publishing
+      TETHER_WEB_ALLOWED_HOSTS: ${TETHER_WEB_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      TETHER_WEB_AUTH_USER: ${TETHER_WEB_AUTH_USER:?Set a Basic Auth username}
+      TETHER_WEB_AUTH_PASSWORD_FILE: /run/secrets/tether-web-password
+    volumes:
+      - type: bind
+        source: ${TETHER_RUNTIME_DIR:?Set the SAME runtime directory as tether}
+        target: /run/tether-runtime
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TETHER_WEB_PASSWORD_FILE:?Set an absolute path to a private password file}
+        target: /run/secrets/tether-web-password
+        read_only: true
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
