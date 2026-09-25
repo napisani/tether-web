@@ -60,14 +60,14 @@ its ownership should still make the GTK/Web relationship obvious.
 
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
-| App shell | Partial | Shared header, Devices/Messages/Notifications/Calls/Contacts/Settings view switching, route status footer | Shortcuts, shared unread state, browser preferences |
+| App shell | Implemented locally | Shared header, capability-aware Calls tab, Devices/Messages/Notifications/Contacts/Settings navigation, live unread badge, browser-safe shortcuts, accessible focus/tab order, route status footer | GTK window/tray integration has no remote-browser equivalent; hardware validation remains separate |
 | Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
-| Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, reconnect cleanup, responsive navigation; user-validated on a physical phone | Broader device/permission matrix, app-wide unread state |
-| Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation | Physical-phone ANCS validation, browser OS notification policy |
+| Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, app-wide unread refresh and disconnect clearing, responsive navigation; user-validated on a physical phone | Broader device/permission matrix |
+| Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation, opt-in redacted browser alerts | Physical-phone ANCS validation |
 | Calls | Partial | HFP availability, live call list, dial/answer/decline/hang up, daemon-host/iPhone audio routing, network indicators, withheld numbers, reconnect and uncertain-outcome handling | Physical-phone HFP validation, contact completion, persistent call history (not supplied by daemon) |
 | Contacts | Implemented locally | PBAP-gated bounded address-book refresh, accent-insensitive name/address search, expandable phone/email details, copy and namespaced message-thread handoff, unavailable/error/reconnect states, responsive layout | Physical-phone PBAP validation |
 | Settings | Implemented locally | Daemon-global ANCS mirroring/content, call-control and retention controls; authoritative status, destructive-storage confirmation, keyring/privacy guidance, uncertain-outcome handling and reconnect cleanup; links to Devices for Bluetooth supervision | Headless/browser-inapplicable desktop tray, host desktop popups and away-lock documented below; physical-phone validation |
-| Shared helpers | Partial | Message formatting and contact suggestions in Messages; contact-to-message handoff | App-wide contact completion, persisted preferences |
+| Shared helpers | Partial | Message formatting and contact suggestions in Messages; contact-to-message handoff; versioned browser-only alert preference | App-wide contact completion (where a browser flow needs it) |
 
 Update this table whenever either client gains or intentionally changes a
 user-visible capability.
@@ -84,7 +84,8 @@ user-visible capability.
    state, errors, and disconnect cleanup are implemented locally. Confirm the
    separate optional `bt_send_message` operation-ID change upstream before
    shipping: the web never treats an uncorrelated global send result as its own.
-   Extend device/permission coverage and app-wide unread state separately.
+   Extend the device/permission matrix separately; app-wide unread refresh is
+   implemented without attributing uncorrelated events to a browser tab.
 4. **Add Notifications and Calls.** Both views now mirror GTK's visibility-
    driven refresh and daemon capability behavior locally. Validate notification
    dismissal and Hands-Free calls on a physical iPhone before rollout.
@@ -92,8 +93,10 @@ user-visible capability.
 6. **Add Settings and preferences.** Share terminology and daemon settings while
    adapting desktop-only controls to browser equivalents or recording why no
    equivalent exists.
-7. **Close cross-cutting gaps.** Add keyboard navigation, unread indicators,
-   browser notification behavior, and other shell-level parity.
+7. **Close cross-cutting gaps.** Browser-safe keyboard navigation, unread
+   indicators, browser notification consent, and shell focus behavior are
+   implemented locally. Physical-phone and broad accessibility checks remain
+   separate from simulated browser tests.
 
 Each step should be independently usable and should not require feature-specific
 HTTP endpoints in the Go gateway.
@@ -134,8 +137,8 @@ code. They are decisions to review, not implicit omissions.
   also disables daemon-side group-reply correlation.
 - GTK's close-to-tray and symbolic/color tray icon choices have no browser
   process/tray equivalent. `set_desktop_popups` targets the **host desktop**;
-  browser OS notifications have separate origin permissions and belong to
-  Batch 8, not this switch. `bt_set_lock_on_away` locks the **host desktop
+  browser OS notifications have separate origin permissions and are controlled
+  by the independent browser-only switch below, not this host setting. `bt_set_lock_on_away` locks the **host desktop
   session**, not a remote browser tab; neither control is presented in the
   headless web deployment. Their status may be observed in `bt_status`, but
   the browser never implies it can lock its remote user's screen.
@@ -176,7 +179,9 @@ code. They are decisions to review, not implicit omissions.
 - Notifications use the daemon's app name/ID rather than GTK's local icon-theme
   lookup; the browser shows a source initial instead of inventing an iPhone app
   icon. ANCS offers no deep link. The view does not request browser OS popup
-  permission or persist sensitive content; it clears rows on disconnect.
+  permission on load or persist sensitive content; it clears rows on disconnect.
+  A separate Settings switch requests permission only on user action and enables
+  generic live ANCS alerts only when the tab is hidden.
   A dismissal result identifies a notification UID but not the requesting tab,
   so the browser disables the matching row while the result is pending and
   leaves uncertain outcomes disabled until the daemon removes the notification
@@ -191,8 +196,9 @@ code. They are decisions to review, not implicit omissions.
   GTK's “Audio here” means the daemon host's PipeWire backend, not
   the device running a remote browser. The web UI explicitly names that host
   and does not claim to stream call audio into the browser. GTK hides the Calls
-  tab when call control is off; the web leaves a guidance page reachable so
-  users can see the host command needed to opt in. A remote gateway now
+  tab when call control is off; the web now does the same, returning to Devices
+  if the host disables Calls or the daemon disconnects while that view is open.
+  Host opt-in remains in Settings. A remote gateway now
   requires a password file and protects the browser API with HTTP Basic over
   deployment-provided HTTPS; all authenticated sessions still share the same
   daemon permissions.
@@ -211,6 +217,37 @@ code. They are decisions to review, not implicit omissions.
   list arrives. All authenticated browser tabs intentionally share daemon
   privileges and receive its uncorrelated events, so this is not per-tab
   private storage or a claim of request ownership.
+- GTK uses app accelerators and a tray unread count. The browser keeps an
+  unread badge from `bt_threads` while Messages is hidden and refreshes it on
+  incoming messages and successful reads. Retained host `bt_threads` replies
+  are ignored until `map_open` confirms the current phone, including during
+  contact handoff; counts, private rows, and the selected thread heading clear
+  on daemon/MAP loss while unsent drafts and ambiguous-send warnings remain.
+  Ctrl/Meta+1–5 selects Devices, Messages, Notifications, Contacts, Calls
+  (only when enabled); Ctrl/Meta+N composes, Ctrl/Meta+F searches Messages,
+  and Ctrl/Meta+, opens Settings. Editing fields and browser-reserved close/quit
+  shortcuts are untouched; browser/OS shortcuts can still take precedence.
+  All interactive controls use visible keyboard focus, and new-message and
+  search shortcuts focus their respective fields. Browser tab order follows
+  visible navigation rather than forcing GTK's window focus model.
+- Browser OS notifications are **off by default** and independent of
+  `set_desktop_popups`. The preference stores only `enabled`/`disabled` under
+  a versioned localStorage key; no event, contact, sender, or message content
+  is stored there. On a secure origin, a user-initiated action requests origin
+  permission; denied/unsupported states and blocked storage are surfaced.
+  Revoking permission in browser settings disables the saved preference on
+  focus/visibility change or before the next alert. While the page is hidden,
+  daemon/ANCS status is ready, and the latest host `bt_status` still allows
+  ANCS on the selected device, live
+  `bt_notification` events produce only “New iPhone notification” / “Open
+  Tether to view it.” without source metadata or sensitive text. Opening an
+  alert focuses the Notifications view, not an iPhone deep link. Initial
+  `bt_notifications` snapshots never alert; a bounded in-memory UID set
+  suppresses replay in one tab and resets on daemon/ANCS loss. A shared
+  authenticated daemon can feed multiple tabs, so alerts are **not** exactly
+  once across tabs. Browser notification centers can retain generic alerts
+  after disconnect; the app cannot revoke those OS entries. Headless browser
+  tests mock permissions and OS delivery, not physical ANCS behavior.
 - **Send Clipboard** remains deferred. `clipboard_send` reads the *host desktop*
   selection, not the browser clipboard, and broadcasts plaintext clipboard
   events to every authenticated browser.

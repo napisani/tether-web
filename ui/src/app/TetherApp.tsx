@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { sendDaemonCommand, useDaemonClient } from "../daemon/DaemonClient";
-import type { DaemonEvent, ProtocolInfoEvent } from "../protocol";
+import type { BluetoothStatusEvent, DaemonEvent, ProtocolInfoEvent } from "../protocol";
 import { DevicesView } from "../views/devices/DevicesView";
 import { useAirPodsCommands } from "../views/devices/useAirPodsCommands";
 import { useBluetoothCommands } from "../views/devices/useBluetoothCommands";
 import { usePeerCommands } from "../views/devices/usePeerCommands";
 import { useFileTransfer } from "../views/devices/useFileTransfer";
 import { MessagesView } from "../views/messages/MessagesView";
-import { useMessages } from "../views/messages/useMessages";
+import { useMessages, type MessagesState } from "../views/messages/useMessages";
 import { NotificationsView } from "../views/notifications/NotificationsView";
 import { useNotifications } from "../views/notifications/useNotifications";
 import { CallsView } from "../views/calls/CallsView";
@@ -17,15 +17,28 @@ import { useContacts } from "../views/contacts/useContacts";
 import { SettingsView } from "../views/settings/SettingsView";
 import { useSettings } from "../views/settings/useSettings";
 import { AppShell, type AppRoute } from "./AppShell";
+import { useAppRouteEffects, useAppShortcuts } from "./useAppShortcuts";
+import { useBrowserNotifications } from "./useBrowserNotifications";
 import { initialAppState, reduceAppState } from "./appState";
 
 function settingsSupported(protocol: ProtocolInfoEvent | undefined, current: boolean): boolean {
   return current && protocol?.capabilities.includes("settings") === true;
 }
 
+function callsTabVisible(daemonConnected: boolean, status?: BluetoothStatusEvent): boolean {
+  return daemonConnected && status?.calls_enabled === true;
+}
+
+function unreadMessageCount(connected: boolean, messages: MessagesState): number {
+  if (!connected || !messages.mapOpen || !messages.threadsKnown) return 0;
+
+  return messages.threads.reduce((total, thread) => total + (thread.unread ?? 0), 0);
+}
+
 export function TetherApp() {
   const [state, dispatch] = useReducer(reduceAppState, initialAppState);
   const [route, setRoute] = useState<AppRoute>("devices");
+  const [searchRequested, setSearchRequested] = useState(false);
   const [settingsProtocolKnown, setSettingsProtocolKnown] = useState(false);
   const fileTransfer = useFileTransfer();
   const messages = useMessages(route === "messages");
@@ -34,6 +47,7 @@ export function TetherApp() {
   const contacts = useContacts(route === "contacts" && contactsAvailable);
   const settingsAvailable = settingsSupported(state.daemon.protocol, settingsProtocolKnown);
   const settings = useSettings(route === "settings" && settingsAvailable);
+  const browserNotifications = useBrowserNotifications(() => setRoute("notifications"));
   const notificationsAvailable = hasCapability("notifications");
   const notifications = useNotifications(route === "notifications" && notificationsAvailable);
   const callsAvailable = hasCapability("calls");
@@ -65,6 +79,7 @@ export function TetherApp() {
         messages.handleDisconnect();
         contacts.handleDisconnect();
         settings.handleDisconnect();
+        browserNotifications.handleDisconnect();
         notifications.handleDisconnect();
         calls.handleDisconnect();
       }
@@ -72,7 +87,8 @@ export function TetherApp() {
       dispatch({ type: "daemon-connected", connected });
     },
     [fileTransfer.handleDisconnect, messages.handleDisconnect, contacts.handleDisconnect,
-      settings.handleDisconnect, notifications.handleDisconnect, calls.handleDisconnect],
+      settings.handleDisconnect, browserNotifications.handleDisconnect,
+      notifications.handleDisconnect, calls.handleDisconnect],
   );
 
   const onEvent = useCallback(
@@ -83,6 +99,7 @@ export function TetherApp() {
       messages.handleEvent(event);
       contacts.handleEvent(event);
       settings.handleEvent(event);
+      browserNotifications.handleEvent(event);
       notifications.handleEvent(event);
       calls.handleEvent(event);
 
@@ -112,7 +129,8 @@ export function TetherApp() {
     },
     [fileTransfer.handleEvent, messages.handleEvent, messages.handleDisconnect,
       contacts.handleEvent, contacts.handleDisconnect, settings.handleEvent, settings.handleDisconnect,
-      notifications.handleEvent, notifications.handleDisconnect, calls.handleEvent, calls.handleDisconnect,
+      browserNotifications.handleEvent, notifications.handleEvent, notifications.handleDisconnect,
+      calls.handleEvent, calls.handleDisconnect,
       refreshCallsCapability],
   );
 
@@ -134,6 +152,12 @@ export function TetherApp() {
     state.devices.connection?.classic_connected || state.devices.connection?.le_connected,
   );
 
+  const showCalls = callsTabVisible(state.daemon.connected, state.devices.bluetooth);
+
+  useAppShortcuts({ onNavigate: setRoute, onNewMessage: () => { messages.startCompose(); setRoute("messages"); },
+    onSearch: () => { setSearchRequested(true); setRoute("messages"); }, showCalls });
+  useAppRouteEffects(route, showCalls, searchRequested, setRoute, () => setSearchRequested(false));
+
   return (
     <AppShell
       route={route}
@@ -143,6 +167,8 @@ export function TetherApp() {
       wifiConnected={wifiConnected}
       wifiAvailable={state.devices.wifi.mdnsAvailable}
       phoneConnected={phoneConnected}
+      unreadCount={unreadMessageCount(state.daemon.connected, messages.state)}
+      showCalls={showCalls}
       version={state.devices.bluetooth?.version}
     >
       {route === "notifications" && <NotificationsView notifications={notifications} daemonConnected={state.daemon.connected}
@@ -162,7 +188,8 @@ export function TetherApp() {
         available={contactsAvailable} onOpenDevices={() => setRoute("devices")}
         onMessage={(thread, name) => { messages.openThread(thread, name); setRoute("messages"); }} />}
       {route === "settings" && <SettingsView settings={settings} daemonConnected={state.daemon.connected}
-        available={settingsAvailable} checking={!settingsProtocolKnown} onOpenDevices={() => setRoute("devices")} />}
+        available={settingsAvailable} checking={!settingsProtocolKnown} onOpenDevices={() => setRoute("devices")}
+        browserNotifications={browserNotifications} />}
       {route === "devices" && <DevicesView
         daemon={state.daemon}
         state={state.devices}

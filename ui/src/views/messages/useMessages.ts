@@ -46,6 +46,7 @@ export function useMessages(visible: boolean) {
   current.current = state;
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  const acceptingMessages = useRef(false);
   const pending = useRef<PendingSend | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const markedRead = useRef(new Set<string>());
@@ -62,6 +63,8 @@ export function useMessages(visible: boolean) {
   }, []);
 
   const refresh = useCallback(() => {
+    if (!acceptingMessages.current) return;
+
     void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {
       change((value) => ({ ...value, error: "Could not refresh conversations." }));
     });
@@ -77,9 +80,60 @@ export function useMessages(visible: boolean) {
     if (visible) refresh();
   }, [visible, refresh]);
 
+  const handleConnectionChanged = useCallback((event: Extract<DaemonEvent, { command: "bt_connection_changed" }>) => {
+    const mapOpen = event.map_open === true;
+    const wasOpen = current.current.mapOpen;
+    acceptingMessages.current = mapOpen;
+
+    if (!mapOpen) {
+      markedRead.current.clear();
+      pendingRead.current.clear();
+      contactHandoff.current = null;
+    }
+
+    change((value) => {
+      const base = mapOpen ? value : { ...value, threads: [], threadsKnown: false,
+        messages: [], loadedThread: "", contacts: [] };
+
+      return { ...base, mapOpen,
+        permissionOffer: event.map_error === "forbidden" || event.map_error === "no_record",
+        connectionReason: event.profile_reason || event.link_reason || "Messages are not connected." };
+    });
+
+    if (mapOpen && !wasOpen) {
+      if (visibleRef.current) refresh();
+      else void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {});
+    }
+  }, [change, refresh]);
+
+  const handleMessageRead = useCallback((event: Extract<DaemonEvent, { command: "bt_message_read" }>) => {
+    const ownHandles = event.handles.filter((handle) => pendingRead.current.has(handle));
+
+    ownHandles.forEach((handle) => pendingRead.current.delete(handle));
+
+    if ((!event.success || event.message) && ownHandles.length) {
+      ownHandles.forEach((handle) => markedRead.current.delete(handle));
+      change((value) => ({ ...value, error: event.message || "Could not mark messages as read." }));
+    }
+
+    // A read by GTK or another browser must also update the app-wide badge.
+    if (acceptingMessages.current && (visibleRef.current || event.success)) {
+      void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {});
+    }
+  }, [change]);
+
   const handleEvent = useCallback((event: DaemonEvent) => {
     switch (event.command) {
+      case "gateway_status":
+        // GTK primes its tray count on subscribe even when Messages is hidden.
+        if (event.daemon_connected && acceptingMessages.current && !visibleRef.current) {
+          void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {});
+        }
+
+        break;
       case "bt_threads": {
+        if (!acceptingMessages.current) break;
+
         const handoff = contactHandoff.current;
         const found = handoff !== null && event.threads.some((item) => item.thread === handoff);
 
@@ -91,25 +145,20 @@ export function useMessages(visible: boolean) {
       }
 
       case "bt_messages":
-        if (event.thread !== current.current.selected) break;
+        if (!acceptingMessages.current || event.thread !== current.current.selected) break;
         change((value) => ({ ...value, messages: event.messages, loadedThread: event.thread }));
         break;
       case "bt_contacts":
-        if (event.query !== current.current.recipient) break;
+        if (!acceptingMessages.current || event.query !== current.current.recipient) break;
         change((value) => ({ ...value, contacts: event.contacts }));
         break;
-      case "bt_connection_changed": {
-        const mapOpen = event.map_open === true;
-        const wasOpen = current.current.mapOpen;
-        change((value) => ({ ...value, mapOpen,
-          permissionOffer: event.map_error === "forbidden" || event.map_error === "no_record",
-          connectionReason: event.profile_reason || event.link_reason || "Messages are not connected." }));
-
-        if (visibleRef.current && mapOpen && !wasOpen) refresh();
+      case "bt_connection_changed":
+        handleConnectionChanged(event);
         break;
-      }
 
       case "bt_message":
+        if (!acceptingMessages.current) break;
+
         void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {});
 
         if (visibleRef.current && event.thread === current.current.selected) {
@@ -117,18 +166,9 @@ export function useMessages(visible: boolean) {
         }
 
         break;
-      case "bt_message_read": {
-        const ownHandles = event.handles.filter((handle) => pendingRead.current.has(handle));
-        ownHandles.forEach((handle) => pendingRead.current.delete(handle));
-
-        if ((!event.success || event.message) && ownHandles.length) {
-          ownHandles.forEach((handle) => markedRead.current.delete(handle));
-          change((value) => ({ ...value, error: event.message || "Could not mark messages as read." }));
-        }
-
-        if (visibleRef.current) void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {});
+      case "bt_message_read":
+        handleMessageRead(event);
         break;
-      }
 
       case "bt_send_result": {
         const active = pending.current;
@@ -155,9 +195,10 @@ export function useMessages(visible: boolean) {
         break;
       }
     }
-  }, [change, refresh]);
+  }, [change, refresh, handleConnectionChanged, handleMessageRead]);
 
   const handleDisconnect = useCallback(() => {
+    acceptingMessages.current = false;
     markedRead.current.clear();
     pendingRead.current.clear();
     contactHandoff.current = null;
@@ -168,7 +209,8 @@ export function useMessages(visible: boolean) {
       timer.current = undefined;
     }
 
-    change((value) => ({ ...value, mapOpen: false, permissionOffer: false, sending: false,
+    change((value) => ({ ...value, threads: [], threadsKnown: false, messages: [], loadedThread: "", contacts: [],
+      mapOpen: false, permissionOffer: false, sending: false,
       error: value.sending ? "Connection lost; that message may still have been sent. Check your phone before retrying." : value.error }));
   }, [change]);
 
@@ -217,7 +259,7 @@ export function useMessages(visible: boolean) {
     contactHandoff.current = current.current.threadsKnown ? null : thread;
     loadThread(thread, !existing, existing ? "" : name);
 
-    if (!current.current.threadsKnown) void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {
+    if (!current.current.threadsKnown && acceptingMessages.current) void sendDaemonCommand({ command: "bt_list_threads" }).catch(() => {
       if (contactHandoff.current === thread) {
         contactHandoff.current = null;
         change((value) => ({ ...value, error: "Could not check existing conversations." }));

@@ -155,8 +155,11 @@ Batches 1–5 are implemented and deployed to the homelab from pinned core and
 web stack tips; Messages passed user-led phone testing. Notifications and Calls
 still await physical-phone ANCS and HFP validation. Batch 6 Contacts is
 implemented on a stacked web branch with no core changes; it needs physical-phone
-PBAP validation before claiming hardware parity. Batch 7 Settings is implemented
-on a stacked web branch with no core changes; desktop-only preferences have
-documented non-equivalents. Batch 8 remains pending.
+PBAP validation before claiming hardware parity. Batch 7 Settings is committed on a stacked web branch with no core changes;
+desktop-only preferences have documented non-equivalents. Batch 8 implements
+shared unread refresh, browser-safe shortcuts, capability-aware Calls navigation,
+opt-in browser-only alert preferences, and reconnect/privacy handling in a
+further stacked web branch. Browser tests simulate Notification permissions and
+ANCS events; physical-phone PBAP, ANCS, and HFP validation remains outstanding.
 Send Clipboard is deferred pending app-wide security and trustworthy completion
 semantics. Each new deployment needs separate approval.

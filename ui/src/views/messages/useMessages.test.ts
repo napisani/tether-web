@@ -21,10 +21,26 @@ afterEach(() => {
 });
 
 describe("Messages lifecycle", () => {
+  it("does not accept retained thread data before MAP readiness", () => {
+    const { result } = renderHook(() => useMessages(false));
+    act(() => result.current.handleEvent({ command: "gateway_status", daemon_connected: true }));
+    expect(commands()).not.toContainEqual({ command: "bt_list_threads" });
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [
+      { thread, name: "Private previous phone", preview: "Private preview", unread: 2 },
+    ] }));
+    expect(result.current.state.threads).toEqual([]);
+    expect(result.current.state.threadsKnown).toBe(false);
+    act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: true }));
+    expect(commands()).toContainEqual({ command: "bt_list_threads" });
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Current phone" }] }));
+    expect(result.current.state.threads[0].name).toBe("Current phone");
+  });
+
   it("requests visible threads, loads the selected conversation and marks unread handles once", async () => {
     const { result } = renderHook(() => useMessages(true));
-    expect(commands()).toContainEqual({ command: "bt_list_threads" });
+    expect(commands()).not.toContainEqual({ command: "bt_list_threads" });
     act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: true }));
+    expect(commands()).toContainEqual({ command: "bt_list_threads" });
     act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Ada", unread: 1 }] }));
     act(() => result.current.selectThread(thread));
     expect(commands()).toContainEqual({ command: "bt_list_messages", thread });
@@ -62,6 +78,10 @@ describe("Messages lifecycle", () => {
     const { result } = renderHook(() => useMessages(false));
 
     act(() => result.current.openThread(thread, "Ada"));
+    expect(commands()).not.toContainEqual({ command: "bt_list_threads" });
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Previous phone" }] }));
+    expect(result.current.state).toMatchObject({ selected: thread, composing: true });
+    act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: true }));
     expect(commands()).toContainEqual({ command: "bt_list_threads" });
     act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Ada" }] }));
     expect(result.current.state).toMatchObject({ selected: thread, composing: false });
@@ -70,6 +90,7 @@ describe("Messages lifecycle", () => {
 
   it("opens existing and new contact addresses without losing namespaced thread keys", () => {
     const { result } = renderHook(() => useMessages(false));
+    act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: true }));
     act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Ada" }] }));
     act(() => result.current.openThread(thread, "Ada"));
     expect(result.current.state).toMatchObject({ selected: thread, composing: false });
@@ -107,6 +128,35 @@ describe("Messages lifecycle", () => {
     expect(result.current.state.selected).toBe("email:other@example.com");
     expect(result.current.draft).toBe("Current draft");
     expect(result.current.state.drafts[thread]).toBeUndefined();
+  });
+
+  it("clears host conversation content on disconnect without losing a browser draft", () => {
+    const { result } = renderHook(() => useMessages(false));
+    act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: true }));
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, name: "Ada", preview: "private", unread: 1 }] }));
+    act(() => result.current.selectThread(thread));
+    act(() => result.current.handleEvent({ command: "bt_messages", thread, messages: [
+      { handle: "msg-1", thread, body: "private", timestamp: 1, outgoing: false, read: true },
+    ] }));
+    act(() => result.current.setDraft("Still editing"));
+    act(() => result.current.handleDisconnect());
+    expect(result.current.state).toMatchObject({ threads: [], threadsKnown: false, messages: [], loadedThread: "", mapOpen: false });
+    expect(result.current.draft).toBe("Still editing");
+  });
+
+  it("drops the previous phone's messages when MAP closes", () => {
+    const { result } = renderHook(() => useMessages(false));
+    act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: true }));
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, preview: "private" }] }));
+    act(() => result.current.selectThread(thread));
+    act(() => result.current.handleEvent({ command: "bt_messages", thread, messages: [
+      { handle: "msg-1", thread, body: "private", timestamp: 1, outgoing: false, read: true },
+    ] }));
+    act(() => result.current.handleEvent({ command: "bt_connection_changed", map_open: false, profile_reason: "Disconnected" }));
+    expect(result.current.state).toMatchObject({ threads: [], threadsKnown: false, messages: [], loadedThread: "", mapOpen: false });
+    expect(result.current.state.connectionReason).toBe("Disconnected");
+    act(() => result.current.handleEvent({ command: "bt_threads", threads: [{ thread, preview: "late reply" }] }));
+    expect(result.current.state.threads).toEqual([]);
   });
 
   it("keeps an uncertain draft after timeout and after disconnect", () => {

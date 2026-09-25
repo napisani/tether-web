@@ -60,6 +60,17 @@
   font-weight: 600;
 }
 
+.nav-unread {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .nav-item.active {
   background: color-mix(in srgb, var(--color-surface-selected) 84%, var(--color-text-muted));
   box-shadow: inset 0 1px color-mix(in srgb, white 5%, transparent);

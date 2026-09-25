@@ -561,6 +561,23 @@ async function readJSON(request) {
   }
 }
 
+function isTestPost(request, path) {
+  return request.url === path && request.method === "POST";
+}
+
+async function emitTestNotification(request, response) {
+  const body = await readJSON(request);
+
+  if (!Number.isSafeInteger(body.uid) || body.uid < 0) {
+    response.writeHead(400).end();
+
+    return;
+  }
+
+  publish({ command: "bt_notification", uid: body.uid, title: "Secret title", body: "Secret body" });
+  response.writeHead(204).end();
+}
+
 const server = createServer(async (request, response) => {
   if (request.url === "/__test/reset" && request.method === "POST") {
     reset(await readJSON(request));
@@ -569,7 +586,13 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.url === "/__test/fail-next-command" && request.method === "POST") {
+  if (isTestPost(request, "/__test/emit-notification")) {
+    await emitTestNotification(request, response);
+
+    return;
+  }
+
+  if (isTestPost(request, "/__test/fail-next-command")) {
     const body = await readJSON(request);
     failNextCommand = body.command || "*";
     response.writeHead(204).end();

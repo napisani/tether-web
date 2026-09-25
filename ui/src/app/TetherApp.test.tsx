@@ -119,14 +119,16 @@ describe("gateway event lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByText(/does not advertise Settings support/)).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: /Mirror iPhone notifications/ })).not.toBeInTheDocument();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
+      .not.toContainEqual({ command: "bt_set_ancs", enabled: false });
 
     act(() => {
       events.emit({ command: "gateway_status", daemon_connected: false });
       events.emit({ command: "gateway_status", daemon_connected: true });
     });
     expect(screen.getByText(/Checking tetherd Settings support/)).toBeInTheDocument();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
+      .not.toContainEqual({ command: "bt_set_ancs", enabled: false });
 
     act(() => {
       events.emit({ command: "protocol_info", version: 1, capabilities: ["settings"] });
@@ -137,6 +139,210 @@ describe("gateway event lifecycle", () => {
     fireEvent.click(screen.getByRole("switch", { name: /Mirror iPhone notifications/ }));
     expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
       .toContainEqual({ command: "bt_set_ancs", enabled: false });
+  });
+
+  it("does not render retained conversations before current MAP readiness", () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["messages"] });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Messages" }));
+    act(() => events.emit({ command: "bt_threads", threads: [
+      { thread: "tel:+15550102", name: "Previous phone private contact", preview: "Secret", unread: 2 },
+    ] }));
+    expect(screen.queryByText("Previous phone private contact")).not.toBeInTheDocument();
+    expect(screen.queryByText("Secret")).not.toBeInTheDocument();
+    expect(screen.getByText("Messages are not connected.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading conversations…")).not.toBeInTheDocument();
+    act(() => {
+      events.emit({ command: "bt_connection_changed", map_open: true });
+      events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550103", name: "Current phone" }] });
+    });
+    expect(screen.getByText("Current phone")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Current phone/ }));
+    act(() => events.emit({ command: "bt_connection_changed", map_open: false }));
+    expect(screen.queryByText("tel:+15550103")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Conversation unavailable" })).toBeInTheDocument();
+    act(() => events.emit({ command: "gateway_status", daemon_connected: false }));
+    expect(screen.queryByText("tel:+15550103")).not.toBeInTheDocument();
+  });
+
+  it("primes the unread badge on connection while Messages is hidden", () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["messages"] });
+      events.emit({ command: "bt_connection_changed", map_open: true });
+    });
+    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
+      .toContainEqual({ command: "bt_list_threads" });
+
+    act(() => events.emit({ command: "bt_threads", threads: [
+      { thread: "tel:+15550102", unread: 2 }, { thread: "tel:+15550103", unread: 1 },
+    ] }));
+
+    const messagesButton = within(screen.getByRole("navigation", { name: "Primary navigation" }))
+      .getByRole("button", { name: "Messages" });
+
+    expect(within(messagesButton).getByText("3")).toBeInTheDocument();
+
+    const beforeRead = vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "bt_list_threads").length;
+
+    act(() => events.emit({ command: "bt_message_read", handles: ["msg-1"], read: true, success: true }));
+    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "bt_list_threads"))
+      .toHaveLength(beforeRead + 1);
+
+    act(() => events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550102", unread: 0 }] }));
+    expect(within(messagesButton).queryByText("3")).not.toBeInTheDocument();
+    act(() => events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550102", unread: 4 }] }));
+    expect(within(messagesButton).getByText("4")).toBeInTheDocument();
+    act(() => events.emit({ command: "gateway_status", daemon_connected: false }));
+    expect(within(messagesButton).queryByText("4")).not.toBeInTheDocument();
+  });
+
+  it("keeps browser notification consent available even without daemon Settings support", () => {
+    const browserApi = Object.assign(vi.fn(), { permission: "granted", requestPermission: vi.fn() });
+
+    localStorage.clear();
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("Notification", browserApi);
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: [] });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByText(/does not advertise Settings support/)).toBeInTheDocument();
+    const browserAlerts = screen.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ });
+    expect(browserAlerts).not.toBeChecked();
+    fireEvent.click(browserAlerts);
+    expect(browserAlerts).toBeChecked();
+    expect(localStorage.getItem("tether-web:browser-notifications:v1")).toBe("enabled");
+    browserApi.permission = "denied";
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(browserAlerts).not.toBeChecked();
+    expect(browserAlerts).toBeDisabled();
+    expect(screen.getByText(/Allow notifications for this origin/)).toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it("routes a redacted browser alert back to Notifications", () => {
+    let openNotification: () => void = () => { throw new Error("Expected a browser alert"); };
+
+    const notifications: string[] = [];
+
+    class BrowserAlert {
+      static permission: NotificationPermission = "granted";
+      static requestPermission = vi.fn<() => Promise<NotificationPermission>>().mockResolvedValue("granted");
+      onclick: (() => void) | null = null;
+      close = vi.fn<() => void>();
+
+      constructor(title: string, _options: NotificationOptions) {
+        notifications.push(title);
+        openNotification = () => this.onclick?.();
+      }
+    }
+
+    localStorage.clear();
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("Notification", BrowserAlert);
+    vi.spyOn(window, "focus").mockImplementation(() => {});
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["notifications", "settings"] });
+      events.emit({ command: "bt_status", available: true, ancs_enabled: true, device_address: "AA" });
+      events.emit({ command: "bt_connection_changed", ancs_ready: true });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ }));
+    act(() => events.emit({ command: "bt_notification", uid: 44, title: "Private title", body: "Private body" }));
+    expect(notifications).toEqual(["New iPhone notification"]);
+    act(() => openNotification());
+    expect(screen.getByRole("heading", { name: "Notifications" })).toBeInTheDocument();
+    localStorage.clear();
+  });
+
+  it("hides Calls until enabled and follows GTK browser-safe navigation shortcuts", () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["messages", "contacts", "notifications", "settings"] });
+      events.emit({ command: "bt_status", available: true, calls_enabled: false });
+    });
+    expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "5", ctrlKey: true });
+    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "4", ctrlKey: true });
+    expect(screen.getByRole("heading", { name: "Contacts" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: ",", ctrlKey: true });
+    expect(screen.getByRole("heading", { name: /^Settings$/ })).toBeInTheDocument();
+    act(() => events.emit({ command: "bt_status", available: true, calls_enabled: true }));
+    expect(screen.getByRole("button", { name: "Calls" })).toBeInTheDocument();
+
+    const navOrder = within(screen.getByRole("navigation", { name: "Primary navigation" }))
+      .getAllByRole("button").map((button) => button.textContent);
+
+    expect(navOrder.indexOf("Contacts")).toBeLessThan(navOrder.indexOf("Calls"));
+    fireEvent.keyDown(document, { key: "5", ctrlKey: true });
+    expect(screen.getByRole("heading", { name: "Calls" })).toBeInTheDocument();
+    act(() => events.emit({ command: "bt_status", available: true, calls_enabled: false }));
+    expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+  });
+
+  it("hides the Calls route when the daemon disconnects despite a cached host setting", () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["calls"] });
+      events.emit({ command: "bt_status", available: true, calls_enabled: true });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
+    act(() => events.emit({ command: "gateway_status", daemon_connected: false }));
+    expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+  });
+
+  it("opens compose and focuses search without stealing shortcuts from editable fields", () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["messages", "settings"] });
+      events.emit({ command: "bt_connection_changed", map_open: true });
+    });
+    fireEvent.keyDown(document, { key: "n", metaKey: true });
+    expect(screen.getByRole("heading", { name: "New message" })).toBeInTheDocument();
+    const recipient = screen.getByRole("textbox", { name: "To" });
+    expect(recipient).toHaveFocus();
+    fireEvent.keyDown(recipient, { key: "1", metaKey: true });
+    expect(screen.getByRole("heading", { name: "New message" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+    const search = screen.getByRole("searchbox", { name: "Search conversations" });
+    expect(search).toHaveFocus();
+    fireEvent.keyDown(search, { key: "3", ctrlKey: true });
+    expect(search).toHaveFocus();
   });
 
   it("cancels in-flight pairing when the event stream disconnects", async () => {

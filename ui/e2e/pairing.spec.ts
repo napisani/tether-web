@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
 
+declare global {
+  interface Window {
+    __tetherTestAlerts: Array<{ title: string; body?: string }>;
+  }
+}
+
 test.beforeEach(async ({ request }) => {
   await request.post("/__test/reset", { data: {} });
 });
@@ -15,6 +21,58 @@ test("reads and replies to an iPhone conversation", async ({ page, request }) =>
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByLabel("Sent: On my way")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
+});
+
+test("keeps a global unread badge in sync while the Messages view is hidden", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { withMessages: true } });
+  await page.goto("/");
+  const messages = page.getByRole("button", { name: "Messages" });
+  await expect(messages).toBeVisible();
+  await expect(messages.locator(".nav-unread")).toHaveText("1");
+  await expect(page.locator("#messages-nav-unread")).toHaveCSS("clip-path", "inset(50%)");
+  await messages.click();
+  await page.getByRole("button", { name: /Ada See you soon/ }).click();
+  await expect(messages.locator(".nav-unread")).toHaveCount(0);
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Messages" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Notifications" })).toBeFocused();
+});
+
+test("opt-in browser alerts redact iPhone content and ignore repeated events", async ({ page, request }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "isSecureContext", { value: true });
+    Object.defineProperty(document, "visibilityState", { get: () => "hidden" });
+    window.__tetherTestAlerts = [];
+
+    class BrowserAlert {
+      static permission = "granted";
+      static requestPermission() { return Promise.resolve("granted"); }
+      onclick: (() => void) | null = null;
+      constructor(title: string, options: NotificationOptions) {
+        window.__tetherTestAlerts.push({ title, body: options.body });
+      }
+      close() {}
+    }
+
+    Object.defineProperty(window, "Notification", { value: BrowserAlert });
+  });
+  await request.post("/__test/reset", { data: { paired: true, withNotifications: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const alerts = page.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ });
+  await expect(alerts).not.toBeChecked();
+  await alerts.click();
+  await expect(alerts).toBeChecked();
+  expect(await page.evaluate(() => window.__tetherTestAlerts)).toEqual([]);
+  const response = await request.post("/__test/emit-notification", { data: { uid: 101, title: "Secret title", body: "Secret body" } });
+  expect(response.status()).toBe(204);
+  await expect.poll(() => page.evaluate(() => window.__tetherTestAlerts)).toEqual([
+    { title: "New iPhone notification", body: "Open Tether to view it." },
+  ]);
+  await request.post("/__test/emit-notification", { data: { uid: 101, title: "Secret duplicate" } });
+  expect(await page.evaluate(() => window.__tetherTestAlerts)).toHaveLength(1);
 });
 
 test("searches iPhone contacts and opens an existing or new message thread", async ({ page, request }) => {

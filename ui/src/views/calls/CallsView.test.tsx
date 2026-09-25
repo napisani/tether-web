@@ -32,16 +32,16 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Calls view", () => {
-  it("explains the host-side opt-in and HFP availability", () => {
+  it("hides Calls until host opt-in and then explains HFP availability", () => {
     render(<TetherApp />);
     connect(false);
     act(() => FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: false }));
-    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
-    expect(screen.getByText(/tether --bt-calls-enable on/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
     expect(commands()).not.toContainEqual({ command: "bt_list_calls" });
     expect(commands()).toContainEqual({ command: "protocol_info" });
     act(() => FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }));
     expect(commands().filter((command) => command.command === "protocol_info")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     expect(screen.getByText("Call control is enabled, but Bluetooth is unavailable on the tetherd host.")).toBeInTheDocument();
     connect();
     act(() => FakeEventSource.current.emit({ command: "bt_connection_changed", calls: {
@@ -53,9 +53,9 @@ describe("Calls view", () => {
   it("surfaces a failed capability refresh and lets the user retry it", async () => {
     render(<TetherApp />);
     connect(false);
-    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     vi.mocked(fetch).mockRejectedValueOnce(new Error("gateway unavailable"));
     await act(async () => FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Could not refresh Calls availability.");
     fireEvent.click(screen.getByRole("button", { name: "Retry availability" }));
     await act(async () => {});
@@ -66,6 +66,7 @@ describe("Calls view", () => {
   it("displays withheld callers, answers and declines by path, and labels host audio accurately", () => {
     render(<TetherApp />);
     connect();
+    act(() => FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }));
     fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     act(() => {
       FakeEventSource.current.emit({ command: "bt_connection_changed", calls: {
@@ -97,6 +98,7 @@ describe("Calls view", () => {
   it("preserves the dial number on global results and clears private call rows on disconnect", () => {
     render(<TetherApp />);
     connect();
+    act(() => FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }));
     fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     act(() => FakeEventSource.current.emit({ command: "bt_connection_changed", calls: { available: true, audio: "" } }));
     const number = screen.getByRole("textbox", { name: "Number to call" });
@@ -109,7 +111,12 @@ describe("Calls view", () => {
     expect(screen.getByText("Dialing")).toBeInTheDocument();
     act(() => FakeEventSource.current.emit({ command: "gateway_status", daemon_connected: false }));
     expect(screen.queryByText("Dialing")).not.toBeInTheDocument();
-    expect(number).toHaveValue("+15550100");
-    expect(screen.getByText("Reconnect to tetherd to load calls.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
+    connect();
+    act(() => FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
+    expect(screen.getByRole("textbox", { name: "Number to call" })).toHaveValue("+15550100");
+    expect(screen.queryByText("Dialing")).not.toBeInTheDocument();
   });
 });

@@ -48,7 +48,7 @@ function ThreadSidebar({ messages, daemonConnected }: { messages: Messages; daem
       </div>
       <label className="messages-search">
         <span className="sr-only">Search conversations</span>
-        <input type="search" placeholder="Search conversations" value={state.search}
+        <input id="message-search" type="search" placeholder="Search conversations" value={state.search}
           onChange={(event) => messages.setSearch(event.target.value)} />
       </label>
       {!daemonConnected && <p className="messages-empty">Reconnect to tetherd to see conversations.</p>}
@@ -58,7 +58,7 @@ function ThreadSidebar({ messages, daemonConnected }: { messages: Messages; daem
           {state.permissionOffer && <button type="button" onClick={messages.solicitPermissions}>Show iPhone Permissions</button>}
         </div>
       )}
-      {daemonConnected && !state.threadsKnown && <p className="messages-empty">Loading conversations…</p>}
+      {daemonConnected && state.mapOpen && !state.threadsKnown && <p className="messages-empty">Loading conversations…</p>}
       {daemonConnected && state.threadsKnown && threads.length === 0 && (
         <p className="messages-empty">{search ? "No conversations match your search." : "No conversations yet."}</p>
       )}
@@ -92,7 +92,7 @@ function RecipientPicker({ messages }: { messages: Messages }) {
   return (
     <div className="messages-recipient">
       <label htmlFor="message-to">To</label>
-      <input id="message-to" type="text" autoComplete="off" placeholder="Phone number or email"
+      <input id="message-to" type="text" autoComplete="off" autoFocus placeholder="Phone number or email"
         value={state.recipient} onChange={(event) => messages.setRecipient(event.target.value)} />
       {state.contacts.length > 0 && !state.selected && (
         <ul aria-label="Contact suggestions">
@@ -131,7 +131,7 @@ function ConversationHeading({ messages }: { messages: Messages }) {
   const { state } = messages;
   const selected = state.threads.find((thread) => thread.thread === messages.selectedThread);
 
-  const title = state.composing
+  const title = !state.mapOpen ? "Conversation unavailable" : state.composing
     ? selected?.name || state.recipient || "New message"
     : selected?.name || selected?.address || messages.selectedThread;
 
