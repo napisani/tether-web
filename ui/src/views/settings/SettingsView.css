@@ -68,26 +68,40 @@
 .settings-group > p:last-child { margin-bottom: 0; }
 
 .settings-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
   padding: 14px 0;
   border-top: 1px solid var(--color-border-soft);
 }
 
 .settings-row > span,
-.settings-row > label { display: grid; gap: 4px; }
+.settings-row > label:not(.settings-switch-hit) {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
 
 .settings-row small { line-height: 1.4; }
 
+.settings-switch-hit {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
 .settings-row input[type="checkbox"] {
-  flex: none;
   width: 22px;
   height: 22px;
+  margin: 0;
   accent-color: var(--color-accent);
   cursor: pointer;
 }
+
+.settings-row input[type="checkbox"]:disabled { cursor: not-allowed; }
 
 .settings-row select {
   border: 1px solid var(--color-border-strong);
@@ -116,6 +130,7 @@
 
 @media (max-width: 600px) {
   .settings-view { padding: 24px 16px 48px; }
-  .settings-row { align-items: flex-start; flex-wrap: wrap; }
-  .settings-row select { width: 100%; }
+  .settings-row { align-items: start; }
+  .settings-row.retention-row > span,
+  .settings-row.retention-row select { grid-column: 1 / -1; width: 100%; }
 }

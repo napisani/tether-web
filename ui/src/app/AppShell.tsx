@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import "./AppShell.css";
 
 export type AppRoute = "devices" | "messages" | "notifications" | "calls" | "contacts" | "settings";
@@ -86,10 +86,36 @@ function AppHeader({ connected, route, onNavigate, unreadCount, showCalls }: {
   showCalls: boolean;
 }) {
   const nav = useRef<HTMLElement>(null);
+  const [scrollEdges, setScrollEdges] = useState({ left: false, right: false });
 
   useEffect(() => {
-    nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [route]);
+    const element = nav.current;
+
+    if (!element) return;
+
+    const updateEdges = () => {
+      const left = element.scrollLeft > 2;
+      const right = element.scrollLeft + element.clientWidth < element.scrollWidth - 2;
+      setScrollEdges((previous) => previous.left === left && previous.right === right ? previous : { left, right });
+    };
+
+    const keepCurrentVisible = () => {
+      element.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      updateEdges();
+    };
+
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(keepCurrentVisible);
+    observer?.observe(element);
+    element.addEventListener("scroll", updateEdges, { passive: true });
+    window.addEventListener("resize", keepCurrentVisible);
+    keepCurrentVisible();
+
+    return () => {
+      observer?.disconnect();
+      element.removeEventListener("scroll", updateEdges);
+      window.removeEventListener("resize", keepCurrentVisible);
+    };
+  }, [route, showCalls]);
 
   const connectionLabel = connected ? "Device connected" : "No device connected";
 
@@ -99,25 +125,35 @@ function AppHeader({ connected, route, onNavigate, unreadCount, showCalls }: {
         <span className="brand-mark" aria-hidden="true">T</span>
         <span>Tether</span>
       </div>
-      <nav className="primary-nav" aria-label="Primary navigation" ref={nav}>
-        <button type="button" className={`nav-item ${route === "devices" ? "active" : ""}`}
-          aria-current={route === "devices" ? "page" : undefined} onClick={() => onNavigate("devices")}>Devices</button>
-        <button type="button" className={`nav-item ${route === "messages" ? "active" : ""}`}
-          aria-current={route === "messages" ? "page" : undefined}
-          aria-describedby={unreadCount > 0 ? "messages-nav-unread" : undefined}
-          onClick={() => onNavigate("messages")}>Messages
-          {unreadCount > 0 && <span className="nav-unread" aria-hidden="true">{unreadCount}</span>}
+      <div className="nav-rail" data-scroll-left={scrollEdges.left} data-scroll-right={scrollEdges.right}>
+        <button className="nav-scroll nav-scroll-left" type="button" aria-label="Scroll navigation left"
+          hidden={!scrollEdges.left} onClick={() => nav.current?.scrollBy({ left: -220, behavior: "smooth" })}>
+          <span aria-hidden="true">‹</span>
         </button>
-        {unreadCount > 0 && <span id="messages-nav-unread" className="sr-only">{unreadCount} unread messages</span>}
-        <button type="button" className={`nav-item ${route === "notifications" ? "active" : ""}`}
-          aria-current={route === "notifications" ? "page" : undefined} onClick={() => onNavigate("notifications")}>Notifications</button>
-        <button type="button" className={`nav-item ${route === "contacts" ? "active" : ""}`}
-          aria-current={route === "contacts" ? "page" : undefined} onClick={() => onNavigate("contacts")}>Contacts</button>
-        {showCalls && <button type="button" className={`nav-item ${route === "calls" ? "active" : ""}`}
-          aria-current={route === "calls" ? "page" : undefined} onClick={() => onNavigate("calls")}>Calls</button>}
-        <button type="button" className={`nav-item ${route === "settings" ? "active" : ""}`}
-          aria-current={route === "settings" ? "page" : undefined} onClick={() => onNavigate("settings")}>Settings</button>
-      </nav>
+        <nav className="primary-nav" aria-label="Primary navigation" ref={nav}>
+          <button type="button" className={`nav-item ${route === "devices" ? "active" : ""}`}
+            aria-current={route === "devices" ? "page" : undefined} onClick={() => onNavigate("devices")}>Devices</button>
+          <button type="button" className={`nav-item ${route === "messages" ? "active" : ""}`}
+            aria-current={route === "messages" ? "page" : undefined}
+            aria-describedby={unreadCount > 0 ? "messages-nav-unread" : undefined}
+            onClick={() => onNavigate("messages")}>Messages
+            {unreadCount > 0 && <span className="nav-unread" aria-hidden="true">{unreadCount}</span>}
+          </button>
+          {unreadCount > 0 && <span id="messages-nav-unread" className="sr-only">{unreadCount} unread messages</span>}
+          <button type="button" className={`nav-item ${route === "notifications" ? "active" : ""}`}
+            aria-current={route === "notifications" ? "page" : undefined} onClick={() => onNavigate("notifications")}>Notifications</button>
+          <button type="button" className={`nav-item ${route === "contacts" ? "active" : ""}`}
+            aria-current={route === "contacts" ? "page" : undefined} onClick={() => onNavigate("contacts")}>Contacts</button>
+          {showCalls && <button type="button" className={`nav-item ${route === "calls" ? "active" : ""}`}
+            aria-current={route === "calls" ? "page" : undefined} onClick={() => onNavigate("calls")}>Calls</button>}
+          <button type="button" className={`nav-item ${route === "settings" ? "active" : ""}`}
+            aria-current={route === "settings" ? "page" : undefined} onClick={() => onNavigate("settings")}>Settings</button>
+        </nav>
+        <button className="nav-scroll nav-scroll-right" type="button" aria-label="Scroll navigation right"
+          hidden={!scrollEdges.right} onClick={() => nav.current?.scrollBy({ left: 220, behavior: "smooth" })}>
+          <span aria-hidden="true">›</span>
+        </button>
+      </div>
       <span
         className={`presence-dot ${connected ? "online" : ""}`}
         role="img"
@@ -143,22 +179,29 @@ function RouteStatusBar({
   phoneConnected: boolean;
   version?: string;
 }) {
+  const statuses = [
+    { icon: "◉", label: "tetherd", status: daemonConnected ? "connected" : "offline", active: daemonConnected },
+    { icon: "⌁", label: "Wi-Fi", status: wifiConnected ? "device connected" : wifiAvailable ? "ready" : "mDNS unavailable", active: wifiConnected },
+    { icon: "ᛒ", label: "Bluetooth", status: phoneConnected ? "iPhone connected" : bluetoothAvailable ? "ready" : "unavailable", active: bluetoothAvailable },
+  ];
+
+  const summary = !daemonConnected ? "tetherd offline" : phoneConnected ? "iPhone connected"
+    : wifiConnected ? "Wi-Fi device connected" : "No device connected";
+
+  const versionLabel = version ? `Tether ${version}` : "Tether web";
+
   return (
     <footer className="route-status-bar">
-      <RouteStatus icon="◉" label="tetherd" status={daemonConnected ? "connected" : "offline"} active={daemonConnected} />
-      <RouteStatus
-        icon="⌁"
-        label="Wi-Fi"
-        status={wifiConnected ? "device connected" : wifiAvailable ? "ready" : "mDNS unavailable"}
-        active={wifiConnected}
-      />
-      <RouteStatus
-        icon="ᛒ"
-        label="Bluetooth"
-        status={phoneConnected ? "iPhone connected" : bluetoothAvailable ? "ready" : "unavailable"}
-        active={bluetoothAvailable}
-      />
-      <span className="version">{version ? `Tether ${version}` : "Tether web"}</span>
+      {statuses.map((status) => <RouteStatus key={status.label} {...status} />)}
+      <span className="version">{versionLabel}</span>
+      <details className="mobile-route-status">
+        <summary><span className={`mobile-status-light ${daemonConnected && (phoneConnected || wifiConnected) ? "online" : ""}`} aria-hidden="true" />
+          {summary}<span className="mobile-status-action">Details</span></summary>
+        <div className="mobile-status-details">
+          {statuses.map((status) => <RouteStatus key={status.label} {...status} />)}
+          <span>{versionLabel}</span>
+        </div>
+      </details>
     </footer>
   );
 }

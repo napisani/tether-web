@@ -17,12 +17,12 @@ function SettingSwitch({ label, description, checked, disabled, onChange }: {
 }) {
   const id = label.replaceAll(" ", "-");
 
-  return <div className="settings-row">
-    <label htmlFor={id}><strong>{label}</strong><small>{description}</small></label>
-    <input id={id} type="checkbox" role="switch" aria-checked={checked === true}
+  return <label className="settings-row">
+    <span><strong>{label}</strong><small>{description}</small></span>
+    <span className="settings-switch-hit"><input id={id} type="checkbox" role="switch" aria-checked={checked === true}
       checked={checked === true} disabled={disabled || checked === undefined}
-      onChange={(event) => onChange(event.target.checked)} />
-  </div>;
+      onChange={(event) => onChange(event.target.checked)} /></span>
+  </label>;
 }
 
 function retentionWarning(retention?: Retention, ready?: boolean): string | null {
@@ -89,7 +89,7 @@ function RetentionSettings({ settings, blocked, storageReady }: {
   };
 
   return <section className="settings-group" aria-labelledby="settings-storage"><h2 id="settings-storage">Message history and contacts</h2>
-    <label className="settings-row"><span><strong>Keep message history</strong>
+    <label className="settings-row retention-row"><span><strong>Keep message history</strong>
       <small>Changing this setting migrates host storage. Do not keep permanently deletes retained messages and contacts.</small></span>
       <select value={status?.retention || ""} disabled={blocked || !storageReady || !status?.retention}
         onChange={(event) => setRetention(event.target.value)} aria-label="Keep message history">

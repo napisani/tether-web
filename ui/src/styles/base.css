@@ -30,7 +30,7 @@ button {
   white-space: nowrap;
 }
 
-:where(button, input, select, textarea, a):focus-visible {
+:where(button, input, select, textarea, a, summary):focus-visible {
   outline: 3px solid color-mix(in srgb, var(--color-accent) 65%, white);
   outline-offset: 2px;
 }

@@ -73,6 +73,7 @@ function renderDevicesView({
   daemon = pairedDaemon,
   state = pairedState,
   onPair = vi.fn(),
+  onScan = vi.fn(),
   onUnpair = vi.fn(),
   onConfirmPairing = vi.fn(),
   onSetBluetoothEnabled = vi.fn(),
@@ -104,6 +105,7 @@ function renderDevicesView({
   daemon?: DaemonState;
   state?: DevicesState;
   onPair?: (address: string) => void;
+  onScan?: () => void;
   onUnpair?: (address: string) => void;
   onConfirmPairing?: (accept: boolean) => void;
   onSetBluetoothEnabled?: (enabled: boolean) => void;
@@ -116,7 +118,7 @@ function renderDevicesView({
     <DevicesView
       daemon={daemon}
       state={state}
-      onScan={vi.fn()}
+      onScan={onScan}
       onPair={onPair}
       onUnpair={onUnpair}
       onConfirmPairing={onConfirmPairing}
@@ -142,6 +144,39 @@ describe("guided pairing view", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Codes match" }));
     expect(confirmPairing).toHaveBeenCalledWith(true);
+  });
+
+  it("shows one scan action and groups live services by Bluetooth link", () => {
+    const scan = vi.fn();
+    renderDevicesView({ state: { ...pairedState, pairing: { phase: "idle" } }, onScan: scan });
+
+    expect(screen.getByRole("button", { name: "Scan for devices" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scan for devices" }));
+    expect(scan).toHaveBeenCalledOnce();
+
+    const classic = screen.getByRole("heading", { name: "Classic Bluetooth" }).closest(".status-channel");
+    const lowEnergy = screen.getByRole("heading", { name: "Low Energy" }).closest(".status-channel");
+    expect(classic?.textContent).toContain("Messages");
+    expect(classic?.textContent).toContain("Contacts");
+    expect(lowEnergy?.textContent).toContain("Notifications");
+    expect(screen.queryByText(/Full mode/)).not.toBeInTheDocument();
+  });
+
+  it("explains missing services without exposing daemon codes", () => {
+    renderDevicesView({
+      state: {
+        ...pairedState,
+        bluetooth: { ...pairedState.bluetooth!, ancs_enabled: false },
+        connection: { ...pairedState.connection!, map_open: false, map_error: "no_record",
+          pbap_open: false, pbap_error: "unrecognized_code", ancs_ready: false },
+        pairing: { phase: "idle" },
+      },
+    });
+
+    expect(screen.getByText("The iPhone is not advertising messages. Check Bluetooth permissions.")).toBeInTheDocument();
+    expect(screen.getByText("Contacts unavailable. Check Bluetooth settings.")).toBeInTheDocument();
+    expect(screen.getByText("Turn on mirroring in Settings.")).toBeInTheDocument();
+    expect(screen.queryByText("unrecognized_code")).not.toBeInTheDocument();
   });
 
   it("traps dialog focus, handles Escape, and keeps DOM focus order", () => {
@@ -197,7 +232,8 @@ describe("guided pairing view", () => {
     expect(screen.getByText("Compatibility mode — messages and contacts, no notification mirroring.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Bluetooth setup needed" })).toBeInTheDocument();
     expect(screen.getByText("The adapter cannot advertise as a peripheral.")).toBeInTheDocument();
-    expect(screen.getByText("forbidden")).toBeInTheDocument();
+    expect(screen.getByText("Allow messages in iPhone Bluetooth settings.")).toBeInTheDocument();
+    expect(screen.getAllByText("The iPhone has not granted notification access.")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy commands" }));
     expect(writeText).toHaveBeenCalledWith("sudo systemctl restart bluetooth");
@@ -306,9 +342,9 @@ describe("guided pairing view", () => {
     fireEvent.click(screen.getByRole("button", { name: /Second iPhoneReady to pair/ }));
 
     expect(screen.getByRole("heading", { name: "Second iPhone" })).toBeInTheDocument();
-    expect(screen.getByText("Classic Bluetooth").closest(".capability-card")).not.toHaveClass("active");
-    expect(screen.getByText("Low Energy").closest(".capability-card")).not.toHaveClass("active");
-    expect(screen.getAllByText("Not supervised")).toHaveLength(3);
+    expect(screen.getByText("Classic Bluetooth").closest(".status-channel")).not.toHaveClass("connected");
+    expect(screen.getByText("Low Energy").closest(".status-channel")).not.toHaveClass("connected");
+    expect(screen.getAllByText("Not supervised by Tether.")).toHaveLength(3);
     expect(screen.queryByText("Supervised phone diagnostic")).not.toBeInTheDocument();
   });
 

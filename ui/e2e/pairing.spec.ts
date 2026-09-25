@@ -61,6 +61,50 @@ test("uses the brand mark favicon and explains the connection indicator", async 
   await expect(page.getByRole("img", { name: "Device connected" })).toHaveAttribute("title", "Device connected");
 });
 
+test("keeps mobile navigation and connection details usable after resizing", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "Start on desktop before resizing to mobile");
+  await resetScenario(request, { paired: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await expect.poll(() => page.evaluate(() => {
+    const nav = document.querySelector(".primary-nav");
+    const selected = nav?.querySelector('[aria-current="page"]');
+
+    if (!nav || !selected) return false;
+
+    const bounds = nav.getBoundingClientRect();
+    const selectedBounds = selected.getBoundingClientRect();
+
+    return selectedBounds.left >= bounds.left && selectedBounds.right <= bounds.right;
+  })).toBe(true);
+  await expect(page.locator(".nav-rail")).toHaveAttribute("data-scroll-left", "true");
+  const navPosition = await page.locator(".primary-nav").evaluate((element) => element.scrollLeft);
+  await page.getByRole("button", { name: "Scroll navigation left" }).click();
+  await expect.poll(() => page.locator(".primary-nav").evaluate((element) => element.scrollLeft)).toBeLessThan(navPosition);
+  await expect(page.getByRole("button", { name: "Scroll navigation right" })).toBeVisible();
+
+  const row = page.locator(".settings-row").filter({ has: page.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ }) });
+
+  const alignment = await row.evaluate((element) => {
+    const text = element.firstElementChild?.getBoundingClientRect();
+    const control = element.lastElementChild?.getBoundingClientRect();
+
+    return { textTop: text?.top, controlTop: control?.top, controlWidth: control?.width };
+  });
+
+  expect(alignment.controlTop).toBe(alignment.textTop);
+  expect(alignment.controlWidth).toBeGreaterThanOrEqual(44);
+
+  const footer = page.locator(".route-status-bar");
+  await expect(footer.locator("summary")).toContainText("iPhone connected");
+  expect(await footer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(52);
+  await footer.locator("summary").click();
+  await expect(footer.locator(".mobile-status-details").getByText("Bluetooth: iPhone connected")).toBeVisible();
+});
+
 test("keeps long conversations in two independent viewport-height scroll panes", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "Desktop uses the side-by-side conversation layout");
   await page.setViewportSize({ width: 1882, height: 1876 });
@@ -299,7 +343,11 @@ test("pairs an iPhone through the guided browser flow", async ({ page }) => {
 
   const candidate = page.getByRole("button", { name: /Nearby Apple device Possible iPhone/ });
   await expect(candidate).toBeVisible();
-  await expect(page.getByText("Bluetooth: ready")).toBeVisible();
+  const mobileStatus = page.locator(".mobile-route-status");
+
+  if (await mobileStatus.isVisible()) await mobileStatus.locator("summary").click();
+
+  await expect(page.locator(".route-status-bar .route-status:visible").filter({ hasText: "Bluetooth: ready" })).toBeVisible();
   await candidate.click();
   await page.getByRole("button", { name: "Pair over Bluetooth" }).click();
 
@@ -309,7 +357,7 @@ test("pairs an iPhone through the guided browser flow", async ({ page }) => {
 
   await expect(page.getByText("Pairing complete")).toBeVisible();
   await expect(page.getByText("Paired with someone’s iPhone.")).toBeVisible();
-  await expect(page.getByText("Bluetooth: iPhone connected")).toBeVisible();
+  await expect(page.locator(".route-status-bar .route-status:visible").filter({ hasText: "Bluetooth: iPhone connected" })).toBeVisible();
 });
 
 test("reports a rejected numeric comparison", async ({ page }) => {
@@ -465,6 +513,11 @@ test("keeps desktop Devices list and detail independently scrollable below the h
 
   const list = page.locator(".device-list");
   const detail = page.locator(".device-pane");
+  await expect(page.getByRole("button", { name: "Scan for devices" })).toHaveCount(1);
+  const status = page.getByRole("region", { name: "Current status" });
+  await expect(status.locator(".status-channel")).toHaveCount(2);
+  await expect(status.locator(".status-channel").first()).toContainText("Messages");
+  await expect(status.locator(".status-channel").last()).toContainText("Notifications");
   await expect.poll(() => list.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
   await expect.poll(() => detail.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
 

@@ -37,10 +37,9 @@
   display: block;
   margin-bottom: 6px;
   color: var(--color-text-quiet);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
 .devices-view h1 {
@@ -59,16 +58,6 @@
   font-size: 16px;
 }
 
-.devices-view .icon-button {
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  cursor: pointer;
-}
-
 .devices-view .device-list {
   min-height: 0;
   flex: 1;
@@ -78,9 +67,8 @@
 .devices-view .device-group-heading {
   margin: 14px 10px 6px;
   color: var(--color-text-quiet);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .devices-view .device-row {
@@ -286,61 +274,74 @@
 
 .devices-view .section-heading span {
   color: var(--color-text-quiet);
-  font-size: 12px;
+  font-size: 13px;
 }
 
-.devices-view .status-grid {
+.devices-view .status-channels {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
 }
 
-.devices-view .capability-card {
-  min-height: 88px;
+.devices-view .status-channel {
+  min-width: 0;
+  padding-left: 16px;
+  border-left: 2px solid var(--color-border-strong);
+}
+
+.devices-view .status-channel.connected {
+  border-color: var(--color-accent);
+}
+
+.devices-view .status-channel-heading {
   display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 16px;
-  border: 1px solid var(--color-border-soft);
-  border-radius: 9px;
-  background: var(--color-surface-subtle);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.devices-view .capability-card.active {
-  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+.devices-view .status-channel-heading h4 {
+  margin: 0;
+  font-size: 15px;
 }
 
-.devices-view .capability-state {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+.devices-view .status-channel-heading > span {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.devices-view .status-features {
+  margin-top: 14px;
+}
+
+.devices-view .status-feature {
   display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--color-surface-selected);
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.devices-view .status-feature-marker {
   color: var(--color-text-quiet);
   font-weight: 700;
 }
 
-.devices-view .capability-card.active .capability-state {
-  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+.devices-view .status-feature.active .status-feature-marker {
   color: var(--color-accent);
 }
 
-.devices-view .capability-card div {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.devices-view .capability-card strong {
+.devices-view .status-feature strong {
   font-size: 14px;
 }
 
-.devices-view .capability-card small {
+.devices-view .status-feature small {
+  display: block;
+  margin-top: 4px;
   color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .devices-view .bluetooth-mode {
@@ -838,8 +839,8 @@
     overflow: visible;
   }
 
-  .devices-view .status-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .devices-view .status-channels {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -847,10 +848,6 @@
   .devices-view .detail-heading {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .devices-view .status-grid {
-    grid-template-columns: 1fr;
   }
 
   .devices-view .actions,

@@ -123,8 +123,10 @@ code. They are decisions to review, not implicit omissions.
 - The desktop browser shell keeps content between its header and status footer;
   Devices and Messages scroll their list and detail panes independently. Their
   scrollbar thumbs appear on hover, keyboard focus, or active scrolling. On
-  narrow screens, Devices returns to normal page scrolling. GTK scrollbars
-  follow the host's native theme instead.
+  narrow screens, Devices returns to normal page scrolling, navigation indicates
+  when more routes are offscreen, and a compact connection summary expands to
+  the full daemon, Wi-Fi, and Bluetooth diagnostics. GTK scrollbars and status
+  chrome follow the host's native theme instead.
 - Settings is a browser page instead of GTK's separate preferences window. Bluetooth
   supervision and permission recovery remain in Devices rather than duplicating
   their controls. ANCS mirroring (`bt_set_ancs`), notification text

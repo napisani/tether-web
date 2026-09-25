@@ -39,12 +39,7 @@ export function DeviceList({
 
   return (
     <aside className="device-list-pane">
-      <div className="device-list-heading">
-        <div><span className="eyebrow">Wi-Fi + Bluetooth</span><h1>Devices</h1></div>
-        <button className="icon-button" type="button" onClick={onScan} disabled={scanDisabled} aria-label="Scan for devices">
-          <span aria-hidden="true">↻</span>
-        </button>
-      </div>
+      <div className="device-list-heading"><h1>Devices</h1></div>
 
       <div className="device-list quiet-scrollbar" aria-live="polite">
         {empty ? (
@@ -84,7 +79,7 @@ export function DeviceList({
               <small>
                 {device.airpods
                   ? device.connected ? "Connected" : device.paired ? "Paired" : "Nearby"
-                  : device.paired ? "Paired" : device.iphone ? "Ready to pair" : "Possible iPhone"}
+                  : device.connected ? "Connected" : device.paired ? "Paired" : device.iphone ? "Ready to pair" : "Possible iPhone"}
               </small>
             </span>
             <span className={`row-dot ${device.connected ? "online" : ""}`} aria-hidden="true" />
@@ -93,7 +88,7 @@ export function DeviceList({
       </div>
 
       <button className="scan-button" type="button" onClick={onScan} disabled={scanDisabled}>
-        {scanning || discovering ? <span className="spinner" aria-hidden="true" /> : <span aria-hidden="true">⌁</span>}
+        {scanning || discovering ? <span className="spinner" aria-hidden="true" /> : <span aria-hidden="true">↻</span>}
         {scanning || discovering ? "Scanning…" : "Scan for devices"}
       </button>
       {scanMessage ? <p className="device-list-message" role="status"><strong>Bluetooth:</strong> {scanMessage}</p> : null}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { BluetoothConnectionEvent, BluetoothStatusEvent } from "../../protocol";
 import type { BluetoothDevice } from "./device";
 import { deviceDisplayName } from "./device";
@@ -50,8 +50,9 @@ export function DevicePane({
   return (
     <div className="device-pane-content">
       <DeviceHeader device={device} paired={paired} />
-      <DeviceStatus {...model} isConfiguredDevice={isConfiguredDevice} />
-      {bluetooth ? <BluetoothMode bluetooth={bluetooth} /> : null}
+      <DeviceStatus {...model} isConfiguredDevice={isConfiguredDevice} notificationsEnabled={bluetooth?.ancs_enabled} />
+      {bluetooth && (!model.allProfilesLive || bluetooth.capability?.mode !== "full" || bluetooth.capability.reasons.length > 0)
+        ? <BluetoothMode bluetooth={bluetooth} /> : null}
       <SetupSection
         setup={model.setup}
         setupCommands={model.setupCommands}
@@ -159,6 +160,7 @@ function DeviceStatus({
   pbapError,
   ancsReady,
   ancsReason,
+  notificationsEnabled,
 }: {
   classicConnected: boolean;
   leConnected: boolean;
@@ -169,16 +171,22 @@ function DeviceStatus({
   pbapError: string;
   ancsReady: boolean;
   ancsReason?: string;
+  notificationsEnabled?: boolean;
 }) {
   return (
     <section className="status-section" aria-labelledby="connection-status-title">
       <div className="section-heading"><h3 id="connection-status-title">Current status</h3><span>Live from tetherd</span></div>
-      <div className="status-grid">
-        <CapabilityCard label="Classic Bluetooth" detail={classicConnected ? "BR/EDR connected" : "BR/EDR off"} active={classicConnected} />
-        <CapabilityCard label="Low Energy" detail={leConnected ? "LE connected" : "LE off"} active={leConnected} />
-        <CapabilityCard label="Messages" detail={capabilityDetail(isConfiguredDevice, mapOpen, mapError, "MAP")} active={mapOpen} />
-        <CapabilityCard label="Contacts" detail={capabilityDetail(isConfiguredDevice, pbapOpen, pbapError, "PBAP")} active={pbapOpen} />
-        <CapabilityCard label="Notifications" detail={capabilityDetail(isConfiguredDevice, ancsReady, ancsReason, "ANCS")} active={ancsReady} />
+      <div className="status-channels">
+        <StatusChannel label="Classic Bluetooth" connected={classicConnected}>
+          <CapabilityStatus label="Messages" active={mapOpen}
+            detail={capabilityDetail(isConfiguredDevice, mapOpen, mapError, "messages")} />
+          <CapabilityStatus label="Contacts" active={pbapOpen}
+            detail={capabilityDetail(isConfiguredDevice, pbapOpen, pbapError, "contacts")} />
+        </StatusChannel>
+        <StatusChannel label="Low Energy" connected={leConnected}>
+          <CapabilityStatus label="Notifications" active={ancsReady}
+            detail={capabilityDetail(isConfiguredDevice, ancsReady, ancsReason, "notifications", notificationsEnabled)} />
+        </StatusChannel>
       </div>
     </section>
   );
@@ -260,9 +268,11 @@ function DeviceActions({ device, paired, configured, available, busy, onPair, on
 function BluetoothMode({ bluetooth }: { bluetooth: BluetoothStatusEvent }) {
   const capability = bluetooth.capability;
 
-  const summary = !bluetooth.available || !capability
+  const summary = !bluetooth.available
     ? "Bluetooth is unavailable on this machine."
-    : capability.mode === "full"
+    : !capability
+      ? "Bluetooth capability details are unavailable."
+      : capability.mode === "full"
       ? "Full mode — messages, contacts, and notifications."
       : capability.mode === "compatibility"
         ? "Compatibility mode — messages and contacts, no notification mirroring."
@@ -279,14 +289,26 @@ function BluetoothMode({ bluetooth }: { bluetooth: BluetoothStatusEvent }) {
 function capabilityDetail(
   configured: boolean,
   active: boolean,
-  error: string | undefined,
-  fallback: string,
+  reason: string | undefined,
+  feature: "messages" | "contacts" | "notifications",
+  enabled = true,
 ): string {
-  if (!configured) return "Not supervised";
+  if (!configured) return "Not supervised by Tether.";
 
   if (active) return "Connected";
 
-  return error && error !== "none" ? error : fallback;
+  if (!enabled) return "Turn on mirroring in Settings.";
+
+  if (reason === "forbidden") return `Allow ${feature} in iPhone Bluetooth settings.`;
+
+  if (reason === "no_record") return `The iPhone is not advertising ${feature}. Check Bluetooth permissions.`;
+
+  if (reason && reason !== "none") {
+    // Keep descriptive daemon guidance, but do not expose an unknown machine code as UI copy.
+    return /^[a-z_]+$/.test(reason) ? `${feature[0].toUpperCase()}${feature.slice(1)} unavailable. Check Bluetooth settings.` : reason;
+  }
+
+  return `Waiting for ${feature} to connect.`;
 }
 
 function deviceReason(
@@ -305,11 +327,16 @@ function deviceReason(
   return (linkDegraded ? connection?.link_reason : connection?.profile_reason) || connection?.link_reason || connection?.ancs_reason;
 }
 
-function CapabilityCard({ label, detail, active }: { label: string; detail: string; active: boolean }) {
-  return (
-    <div className={`capability-card ${active ? "active" : ""}`}>
-      <span className="capability-state" aria-hidden="true">{active ? "✓" : "—"}</span>
-      <div><strong>{label}</strong><small>{detail}</small></div>
-    </div>
-  );
+function StatusChannel({ label, connected, children }: { label: string; connected: boolean; children: ReactNode }) {
+  return <div className={`status-channel ${connected ? "connected" : ""}`}>
+    <div className="status-channel-heading"><h4>{label}</h4><span>{connected ? "Connected" : "Not connected"}</span></div>
+    <div className="status-features">{children}</div>
+  </div>;
+}
+
+function CapabilityStatus({ label, detail, active }: { label: string; detail: string; active: boolean }) {
+  return <div className={`status-feature ${active ? "active" : ""}`}>
+    <span className="status-feature-marker" aria-hidden="true">{active ? "✓" : "—"}</span>
+    <div><strong>{label}</strong>{active ? <span className="sr-only"> connected</span> : <small>{detail}</small>}</div>
+  </div>;
 }
