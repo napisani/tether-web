@@ -28,8 +28,41 @@ export function AppShell({
   showCalls: boolean;
   version?: string;
 }) {
+  const shell = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = shell.current;
+
+    if (!root) return;
+
+    const timers = new Map<HTMLElement, number>();
+
+    const onScroll = (event: Event) => {
+      const target = event.target;
+
+      if (!(target instanceof HTMLElement) || !target.classList.contains("quiet-scrollbar")) return;
+
+      window.clearTimeout(timers.get(target));
+      target.dataset.scrolling = "true";
+      timers.set(target, window.setTimeout(() => {
+        delete target.dataset.scrolling;
+        timers.delete(target);
+      }, 900));
+    };
+
+    // Scroll events do not bubble. Capture them once at the shell instead of
+    // adding independent timers to every feature's scroll pane.
+    root.addEventListener("scroll", onScroll, true);
+
+    return () => {
+      root.removeEventListener("scroll", onScroll, true);
+
+      for (const timer of timers.values()) window.clearTimeout(timer);
+    };
+  }, []);
+
   return (
-    <div className={`app-shell ${route === "messages" ? "messages-route" : ""}`}>
+    <div className={`app-shell ${route === "messages" ? "messages-route" : ""}`} ref={shell}>
       <AppHeader connected={phoneConnected || wifiConnected} route={route} onNavigate={onNavigate}
         unreadCount={unreadCount} showCalls={showCalls} />
       {children}
@@ -58,6 +91,8 @@ function AppHeader({ connected, route, onNavigate, unreadCount, showCalls }: {
     nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [route]);
 
+  const connectionLabel = connected ? "Device connected" : "No device connected";
+
   return (
     <header className="app-header">
       <div className="brand" aria-label="Tether">
@@ -85,7 +120,9 @@ function AppHeader({ connected, route, onNavigate, unreadCount, showCalls }: {
       </nav>
       <span
         className={`presence-dot ${connected ? "online" : ""}`}
-        aria-label={connected ? "device connected" : "device disconnected"}
+        role="img"
+        aria-label={connectionLabel}
+        title={connectionLabel}
       />
     </header>
   );

@@ -183,7 +183,7 @@ function DeviceContent({
   onForgetPeer: (fingerprint: string) => void;
 }) {
   return (
-    <section className="device-pane">
+    <section className="device-pane quiet-scrollbar">
       {!daemonConnected ? <Notice title="Tether is reconnecting" body="The web interface cannot reach tetherd yet. It will retry automatically." />
         : selectedPeer ? <PeerPane
           peer={selectedPeer}

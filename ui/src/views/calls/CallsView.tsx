@@ -84,7 +84,7 @@ export function CallsView({ calls, daemonConnected, available, enabled, capabili
   const { state } = calls;
   const ready = daemonConnected && available && state.status?.available === true;
 
-  return <main className="calls-view"><div className="calls-inner">
+  return <main className="calls-view quiet-scrollbar"><div className="calls-inner">
     <header className="calls-header"><div><h1>Calls</h1><p>Control calls on your iPhone</p></div>
       {available && <button type="button" onClick={calls.refresh} disabled={!daemonConnected}>Refresh</button>}
     </header>

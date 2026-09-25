@@ -54,7 +54,7 @@ export function NotificationsView({ notifications, daemonConnected, available, o
 }) {
   const { state } = notifications;
 
-  return <main className="notifications-view">
+  return <main className="notifications-view quiet-scrollbar">
     <div className="notifications-inner">
       <header className="notifications-header">
         <div><h1>Notifications</h1><p>Mirrored from your iPhone</p></div>

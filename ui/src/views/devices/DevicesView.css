@@ -1,5 +1,7 @@
 .devices-view {
   min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .devices-view .devices-workspace {
@@ -68,7 +70,7 @@
 }
 
 .devices-view .device-list {
-  min-height: 130px;
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
 }
@@ -811,8 +813,14 @@
 }
 
 @media (max-width: 820px) {
+  .devices-view {
+    height: auto;
+    overflow: visible;
+  }
+
   .devices-view .devices-workspace {
     display: block;
+    height: auto;
   }
 
   .devices-view .device-list-pane {

@@ -62,7 +62,7 @@ function ThreadSidebar({ messages, daemonConnected }: { messages: Messages; daem
       {daemonConnected && state.threadsKnown && threads.length === 0 && (
         <p className="messages-empty">{search ? "No conversations match your search." : "No conversations yet."}</p>
       )}
-      <ul className="messages-threads">
+      <ul className="messages-threads quiet-scrollbar">
         {threads.map((thread) => (
           <li key={thread.thread}>
             <button type="button" className={state.selected === thread.thread && !state.composing ? "selected" : ""}
@@ -170,7 +170,7 @@ function Conversation({ messages, daemonConnected }: { messages: Messages; daemo
           {daemonConnected && state.permissionOffer && <button type="button" onClick={messages.solicitPermissions}>Show iPhone Permissions</button>}
         </div>
       )}
-      <ol className="messages-history" ref={conversation} onScroll={(event) => {
+      <ol className="messages-history quiet-scrollbar" ref={conversation} onScroll={(event) => {
         const target = event.currentTarget;
         pinned.current = target.scrollHeight - target.scrollTop - target.clientHeight < 48;
       }} aria-label="Messages in conversation">

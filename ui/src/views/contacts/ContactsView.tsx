@@ -102,7 +102,7 @@ export function ContactsView({ contacts, daemonConnected, available, onMessage, 
     </>;
   }
 
-  return <main className="contacts-view"><div className="contacts-inner">
+  return <main className="contacts-view quiet-scrollbar"><div className="contacts-inner">
     <header className="contacts-header"><div><h1>Contacts</h1><p>Your iPhone address book</p></div>
       <button type="button" onClick={contacts.refresh} disabled={!daemonConnected || !available || !state.pbapOpen || state.loading}>Refresh</button>
     </header>

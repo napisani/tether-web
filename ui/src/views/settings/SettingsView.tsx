@@ -153,14 +153,14 @@ export function SettingsView({ settings, daemonConnected, onOpenDevices, availab
   const { state } = settings;
 
   if (daemonConnected && (!available || checking)) {
-    return <main className="settings-view"><div className="settings-inner"><h1>Settings</h1>
+    return <main className="settings-view quiet-scrollbar"><div className="settings-inner"><h1>Settings</h1>
       {browserNotifications && <BrowserNotificationsSection alerts={browserNotifications} />}
       <p className="settings-guidance" role="status">{checking ? "Checking tetherd Settings support…"
         : "This version of tetherd does not advertise Settings support."}</p>
     </div></main>;
   }
 
-  return <main className="settings-view"><div className="settings-inner">
+  return <main className="settings-view quiet-scrollbar"><div className="settings-inner">
     <header className="settings-header"><div><h1>Settings</h1><p>Host settings affect every Tether client connected to this daemon.</p></div>
       <button type="button" onClick={settings.refresh} disabled={!daemonConnected}>Refresh</button>
     </header>

@@ -46,7 +46,7 @@ export function DeviceList({
         </button>
       </div>
 
-      <div className="device-list" aria-live="polite">
+      <div className="device-list quiet-scrollbar" aria-live="polite">
         {empty ? (
           <div className="empty-device">
             <span className="phone-outline" aria-hidden="true" />

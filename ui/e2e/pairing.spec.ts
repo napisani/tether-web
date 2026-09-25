@@ -47,6 +47,20 @@ test("reads and replies to an iPhone conversation", async ({ page, request }) =>
   await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
 });
 
+test("uses the brand mark favicon and explains the connection indicator", async ({ page, request }) => {
+  await page.goto("/");
+  const indicator = page.getByRole("img", { name: "No device connected" });
+  await expect(indicator).toHaveAttribute("title", "No device connected");
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
+  const favicon = await request.get("/favicon.svg");
+  expect(favicon.ok()).toBe(true);
+  expect(await favicon.text()).toContain(">T</text>");
+
+  await resetScenario(request, { paired: true });
+  await page.reload();
+  await expect(page.getByRole("img", { name: "Device connected" })).toHaveAttribute("title", "Device connected");
+});
+
 test("keeps long conversations in two independent viewport-height scroll panes", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "Desktop uses the side-by-side conversation layout");
   await page.setViewportSize({ width: 1882, height: 1876 });
@@ -88,6 +102,19 @@ test("keeps long conversations in two independent viewport-height scroll panes",
   expect(layout.historyScrollable).toBe(true);
   expect(layout.distanceFromLatest).toBeLessThan(2);
 
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => {
+    const focused = document.activeElement;
+
+    if (focused instanceof HTMLElement) focused.blur();
+  });
+
+  const restingScrollbar = await threads.evaluate((element) => getComputedStyle(element).scrollbarColor);
+  expect(restingScrollbar).toMatch(/^(transparent|rgba\(0, 0, 0, 0\))/);
+  await threads.hover();
+  expect(await threads.evaluate((element) => getComputedStyle(element).scrollbarColor)).not.toBe(restingScrollbar);
+  await page.mouse.move(0, 0);
+
   await page.getByRole("textbox", { name: "Message" }).fill("Final test reply");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByLabel("Sent: Final test reply")).toBeVisible();
@@ -103,6 +130,8 @@ test("keeps long conversations in two independent viewport-height scroll panes",
   expect(await history.evaluate((element) => element.scrollTop)).toBe(originalHistoryScroll);
   await history.evaluate((element) => { element.scrollTop = 0; });
   expect(await threads.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(threads).toHaveAttribute("data-scrolling", "true");
+  await expect(threads).not.toHaveAttribute("data-scrolling");
 });
 
 test("opens a long mobile conversation at the latest message without page scrolling", async ({ page, request }, testInfo) => {
@@ -426,6 +455,44 @@ test("manages connected AirPods", async ({ page, request }) => {
   await page.getByRole("checkbox", { name: /Manage AirPods/ }).click();
   await page.getByRole("button", { name: "Disconnect" }).click();
   await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
+});
+
+test("keeps desktop Devices list and detail independently scrollable below the header", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "Desktop has a two-pane device layout");
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await resetScenario(request, { paired: true, withPeer: true });
+  await page.goto("/");
+
+  const list = page.locator(".device-list");
+  const detail = page.locator(".device-pane");
+  await expect.poll(() => list.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+  await expect.poll(() => detail.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+
+  const dimensions = await page.evaluate(() => ({
+    page: document.documentElement.scrollHeight,
+    viewport: window.innerHeight,
+    footer: document.querySelector(".route-status-bar")!.getBoundingClientRect().bottom,
+  }));
+
+  expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport + 2);
+  expect(dimensions.footer).toBeLessThanOrEqual(dimensions.viewport + 2);
+
+  await list.evaluate((element) => { element.scrollTop = 120; });
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  expect(await detail.evaluate((element) => element.scrollTop)).toBe(0);
+
+  const listTop = await list.evaluate((element) => element.scrollTop);
+  await detail.evaluate((element) => { element.scrollTop = 120; });
+  await expect.poll(() => detail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  expect(await list.evaluate((element) => element.scrollTop)).toBe(listTop);
+});
+
+test("keeps mobile Devices content in the normal page flow", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile", "Desktop scrolls within its panes");
+  await page.setViewportSize({ width: 390, height: 450 });
+  await resetScenario(request, { paired: true });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(0);
 });
 
 test("keeps device controls and dialogs usable at the configured viewport", async ({ page, request }) => {
