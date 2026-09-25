@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { sendDaemonCommand, useDaemonClient } from "../daemon/DaemonClient";
-import type { BluetoothStatusEvent, DaemonEvent, ProtocolInfoEvent } from "../protocol";
+import type { BluetoothStatusEvent, ProtocolInfoEvent } from "../protocol";
 import { DevicesView } from "../views/devices/DevicesView";
 import { useAirPodsCommands } from "../views/devices/useAirPodsCommands";
 import { useBluetoothCommands } from "../views/devices/useBluetoothCommands";
@@ -18,6 +18,7 @@ import { SettingsView } from "../views/settings/SettingsView";
 import { useSettings } from "../views/settings/useSettings";
 import { AppShell, type AppRoute } from "./AppShell";
 import { useAppRouteEffects, useAppShortcuts } from "./useAppShortcuts";
+import { useDaemonLifecycle } from "./daemonLifecycle";
 import { useBrowserNotifications } from "./useBrowserNotifications";
 import { initialAppState, reduceAppState } from "./appState";
 
@@ -69,72 +70,21 @@ export function TetherApp() {
     });
   }, []);
 
-  const onConnectionChange = useCallback(
-    (connected: boolean) => {
-      if (!connected) {
-        setSettingsProtocolKnown(false);
-        lastCallsEnabled.current = undefined;
-        setCallsCapabilityError(false);
-        fileTransfer.handleDisconnect();
-        messages.handleDisconnect();
-        contacts.handleDisconnect();
-        settings.handleDisconnect();
-        browserNotifications.handleDisconnect();
-        notifications.handleDisconnect();
-        calls.handleDisconnect();
-      }
+  const resetCapabilities = useCallback(() => {
+    setSettingsProtocolKnown(false);
+    lastCallsEnabled.current = undefined;
+    setCallsCapabilityError(false);
+  }, []);
 
-      dispatch({ type: "daemon-connected", connected });
-    },
-    [fileTransfer.handleDisconnect, messages.handleDisconnect, contacts.handleDisconnect,
-      settings.handleDisconnect, browserNotifications.handleDisconnect,
-      notifications.handleDisconnect, calls.handleDisconnect],
-  );
+  const markProtocolKnown = useCallback(() => setSettingsProtocolKnown(true), []);
 
-  const onEvent = useCallback(
-    (event: DaemonEvent) => {
-      if (event.command === "protocol_info") setSettingsProtocolKnown(true);
+  const lifecycle = useDaemonLifecycle({
+    features: { fileTransfer, messages, contacts, settings, browserNotifications, notifications, calls },
+    dispatch, onResetCapabilities: resetCapabilities, onProtocolInfo: markProtocolKnown,
+    onBluetoothStatus: refreshCallsCapability,
+  });
 
-      fileTransfer.handleEvent(event);
-      messages.handleEvent(event);
-      contacts.handleEvent(event);
-      settings.handleEvent(event);
-      browserNotifications.handleEvent(event);
-      notifications.handleEvent(event);
-      calls.handleEvent(event);
-
-      if (event.command === "gateway_status" && !event.daemon_connected) {
-        setSettingsProtocolKnown(false);
-        lastCallsEnabled.current = undefined;
-        setCallsCapabilityError(false);
-        messages.handleDisconnect();
-        contacts.handleDisconnect();
-        settings.handleDisconnect();
-        notifications.handleDisconnect();
-        calls.handleDisconnect();
-      }
-
-      dispatch({ type: "daemon-event", event });
-
-      if (event.command === "bt_status" && event.calls_enabled !== undefined) {
-        refreshCallsCapability(event.calls_enabled);
-      }
-
-      if (event.command === "bt_pair_result" || event.command === "bt_unpair_result") {
-        void Promise.allSettled([
-          sendDaemonCommand({ command: "bt_status" }),
-          sendDaemonCommand({ command: "bt_list_devices" }),
-        ]);
-      }
-    },
-    [fileTransfer.handleEvent, messages.handleEvent, messages.handleDisconnect,
-      contacts.handleEvent, contacts.handleDisconnect, settings.handleEvent, settings.handleDisconnect,
-      browserNotifications.handleEvent, notifications.handleEvent, notifications.handleDisconnect,
-      calls.handleEvent, calls.handleDisconnect,
-      refreshCallsCapability],
-  );
-
-  useDaemonClient({ onConnectionChange, onEvent });
+  useDaemonClient(lifecycle);
 
   const actions = useBluetoothCommands(state.devices.pairing, dispatch);
   const airpodsActions = useAirPodsCommands(dispatch);

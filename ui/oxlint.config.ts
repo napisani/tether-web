@@ -47,7 +47,7 @@ export default defineConfig({
       files: [
         "src/daemon/DaemonClient.ts",
         "src/views/devices/devicesState.ts",
-        "e2e/fake-gateway.mjs",
+        "e2e/fake-tetherd.mjs",
       ],
       rules: {
         "anti-slop/no-runtime-typeof": "off",
