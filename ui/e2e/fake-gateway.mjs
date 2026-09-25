@@ -73,7 +73,7 @@ const durable = {
   protocol_info: {
     command: "protocol_info",
     version: 1,
-    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers"],
+    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers", "settings"],
   },
   bt_status: baseBluetoothStatus(),
   bt_devices: { command: "bt_devices", devices: [] },
@@ -87,6 +87,11 @@ function baseBluetoothStatus() {
     available: true,
     enabled: true,
     ancs_enabled: true,
+    ancs_content_enabled: true,
+    retention: "encrypted",
+    retention_ready: true,
+    desktop_popups_enabled: true,
+    lock_on_away: false,
     device_address: "",
     version: "0.2.32-e2e",
     capability: { mode: "full", reasons: [], setup: [] },
@@ -163,7 +168,7 @@ function resetNotificationScenario(withMessages, withNotifications) {
     { uid: 43, app_id: "com.example.calendar", app_name: "Calendar", body: "Appointment",
       timestamp: 1_700_000_020, negative_action: false },
   ] : [];
-  durable.protocol_info.capabilities = ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers"];
+  durable.protocol_info.capabilities = ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers", "settings"];
 
   if (withMessages) durable.protocol_info.capabilities.push("messages");
 
@@ -315,6 +320,7 @@ function respondToCommand(response, command) {
 
 const commandHandlers = {
   protocol_info: () => later(() => publish(durable.protocol_info), 10),
+  bt_status: () => later(() => publish(durable.bt_status), 10),
   discover: () => later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10),
   accept_device: () => {
     durable.state_snapshot.pending_pairs = [];
@@ -354,6 +360,25 @@ const commandHandlers = {
   bt_pair_confirm: (command) => later(() => finishPairing(command), 20),
   bt_set_enabled: (command) => {
     durable.bt_status.enabled = command.enabled;
+    publish(durable.bt_status);
+  },
+  bt_set_ancs: (command) => {
+    durable.bt_status.ancs_enabled = command.enabled;
+    publish(durable.bt_status);
+  },
+  bt_set_ancs_content: (command) => {
+    durable.bt_status.ancs_content_enabled = command.enabled;
+    publish(durable.bt_status);
+  },
+  bt_set_calls: (command) => {
+    durable.bt_status.calls_enabled = command.enabled;
+    durable.protocol_info.capabilities = durable.protocol_info.capabilities.filter((item) => item !== "calls");
+
+    if (command.enabled) durable.protocol_info.capabilities.push("calls");
+    publish(durable.bt_status);
+  },
+  bt_set_retention: (command) => {
+    durable.bt_status.retention = command.retention;
     publish(durable.bt_status);
   },
   bt_solicit: () => later(() => publish({ command: "bt_solicit_result", success: true, message: "Asked the iPhone to re-offer notification access." }), 20),

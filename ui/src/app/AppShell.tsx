@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import "./AppShell.css";
 
-export type AppRoute = "devices" | "messages" | "notifications" | "calls" | "contacts";
+export type AppRoute = "devices" | "messages" | "notifications" | "calls" | "contacts" | "settings";
 
 export function AppShell({
   children,
@@ -68,6 +68,8 @@ function AppHeader({ connected, route, onNavigate }: {
           aria-current={route === "calls" ? "page" : undefined} onClick={() => onNavigate("calls")}>Calls</button>
         <button type="button" className={`nav-item ${route === "contacts" ? "active" : ""}`}
           aria-current={route === "contacts" ? "page" : undefined} onClick={() => onNavigate("contacts")}>Contacts</button>
+        <button type="button" className={`nav-item ${route === "settings" ? "active" : ""}`}
+          aria-current={route === "settings" ? "page" : undefined} onClick={() => onNavigate("settings")}>Settings</button>
       </nav>
       <span
         className={`presence-dot ${connected ? "online" : ""}`}

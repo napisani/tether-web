@@ -26,6 +26,11 @@ export interface BluetoothStatusEvent extends DaemonEventBase {
   available: boolean;
   enabled?: boolean;
   ancs_enabled?: boolean;
+  ancs_content_enabled?: boolean;
+  retention?: "encrypted" | "plaintext" | "none";
+  retention_ready?: boolean;
+  desktop_popups_enabled?: boolean;
+  lock_on_away?: boolean;
   capability?: BluetoothCapability | null;
   error?: string;
   version?: string;
@@ -583,6 +588,16 @@ export interface ProtocolInfoCommand extends JsonRecord {
   command: "protocol_info";
 }
 
+export interface BluetoothSetAncsCommand extends JsonRecord {
+  command: "bt_set_ancs" | "bt_set_ancs_content" | "bt_set_calls";
+  enabled: boolean;
+}
+
+export interface BluetoothSetRetentionCommand extends JsonRecord {
+  command: "bt_set_retention";
+  retention: "encrypted" | "plaintext" | "none";
+}
+
 export interface ListCallsCommand extends JsonRecord {
   command: "bt_list_calls";
 }
@@ -606,6 +621,8 @@ export type DaemonCommand =
   | BluetoothUnpairCommand
   | BluetoothPairConfirmationCommand
   | BluetoothSetEnabledCommand
+  | BluetoothSetAncsCommand
+  | BluetoothSetRetentionCommand
   | BluetoothSolicitCommand
   | AirPodsEnableCommand
   | AirPodsPauseCommand

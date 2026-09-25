@@ -60,13 +60,13 @@ its ownership should still make the GTK/Web relationship obvious.
 
 | Area | Status | Web coverage | Remaining GTK behavior |
 |---|---|---|---|
-| App shell | Partial | Shared header, Devices/Messages/Notifications/Calls/Contacts view switching, route status footer | Remaining view switching, shortcuts, settings entry, shared unread state |
+| App shell | Partial | Shared header, Devices/Messages/Notifications/Calls/Contacts/Settings view switching, route status footer | Shortcuts, shared unread state, browser preferences |
 | Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
 | Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, reconnect cleanup, responsive navigation; user-validated on a physical phone | Broader device/permission matrix, app-wide unread state |
 | Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation | Physical-phone ANCS validation, browser OS notification policy |
 | Calls | Partial | HFP availability, live call list, dial/answer/decline/hang up, daemon-host/iPhone audio routing, network indicators, withheld numbers, reconnect and uncertain-outcome handling | Physical-phone HFP validation, contact completion, persistent call history (not supplied by daemon) |
 | Contacts | Implemented locally | PBAP-gated bounded address-book refresh, accent-insensitive name/address search, expandable phone/email details, copy and namespaced message-thread handoff, unavailable/error/reconnect states, responsive layout | Physical-phone PBAP validation |
-| Settings | Not started | None | Bluetooth, ANCS, popup, call, away-lock, retention, and tray preferences where applicable |
+| Settings | Implemented locally | Daemon-global ANCS mirroring/content, call-control and retention controls; authoritative status, destructive-storage confirmation, keyring/privacy guidance, uncertain-outcome handling and reconnect cleanup; links to Devices for Bluetooth supervision | Headless/browser-inapplicable desktop tray, host desktop popups and away-lock documented below; physical-phone validation |
 | Shared helpers | Partial | Message formatting and contact suggestions in Messages; contact-to-message handoff | App-wide contact completion, persisted preferences |
 
 Update this table whenever either client gains or intentionally changes a
@@ -117,6 +117,28 @@ code. They are decisions to review, not implicit omissions.
 
 ## Intentional platform differences
 
+- Settings is a browser page instead of GTK's separate preferences window. Bluetooth
+  supervision and permission recovery remain in Devices rather than duplicating
+  their controls. ANCS mirroring (`bt_set_ancs`), notification text
+  (`bt_set_ancs_content`), call control (`bt_set_calls`), and host message/contacts
+  retention (`bt_set_retention`) operate on `tetherd` for all clients. The web
+  requires the advertised `settings` capability and displays `bt_status` as
+  the authority. It serializes local changes, waits for a matching global
+  status before acknowledging a request, and requires an explicit check before
+  retrying after an ambiguous result. Global broadcasts
+  do not identify which browser made a request; matching status proves only
+  that the *host setting* has the requested value. "Do not keep" irreversibly
+  deletes retained host messages and contacts and needs confirmation; plaintext
+  storage also needs a privacy confirmation. Encrypted mode without a ready
+  host keyring warns that persistence is paused. Turning off ANCS content
+  also disables daemon-side group-reply correlation.
+- GTK's close-to-tray and symbolic/color tray icon choices have no browser
+  process/tray equivalent. `set_desktop_popups` targets the **host desktop**;
+  browser OS notifications have separate origin permissions and belong to
+  Batch 8, not this switch. `bt_set_lock_on_away` locks the **host desktop
+  session**, not a remote browser tab; neither control is presented in the
+  headless web deployment. Their status may be observed in `bt_status`, but
+  the browser never implies it can lock its remote user's screen.
 - AirPods management has the same daemon commands, state gating, and user outcomes
   as GTK. The browser uses semantic buttons, checkboxes, and a select control
   rather than GTK linked radio buttons and native combo boxes.

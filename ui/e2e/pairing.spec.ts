@@ -40,6 +40,35 @@ test("searches iPhone contacts and opens an existing or new message thread", asy
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
 });
 
+test("changes host settings without treating them as browser-only preferences", async ({ page, request }) => {
+  await request.post("/__test/reset", { data: { paired: true } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByText(/affect every Tether client/)).toBeVisible();
+  const mirror = page.getByRole("switch", { name: /Mirror iPhone notifications/ });
+  const content = page.getByRole("switch", { name: /Include notification text/ });
+  await expect(mirror).toBeChecked();
+  await mirror.click();
+  await expect(mirror).not.toBeChecked();
+  await expect(content).toBeDisabled();
+  await mirror.click();
+  await expect(content).toBeEnabled();
+  await content.click();
+  await expect(content).not.toBeChecked();
+  const retention = page.getByRole("combobox", { name: "Keep message history" });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await retention.selectOption("none");
+  await expect(retention).toHaveValue("encrypted");
+  page.once("dialog", (dialog) => dialog.accept());
+  await retention.selectOption("plaintext");
+  await expect(retention).toHaveValue("plaintext");
+  await expect(page.getByText(/readable on the tetherd host/)).toBeVisible();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(retention).toHaveValue("plaintext");
+  await expect(page.getByText(/have no browser equivalent/)).toBeVisible();
+});
+
 test("lists and dismisses an iPhone notification", async ({ page, request }) => {
   await request.post("/__test/reset", { data: { withNotifications: true } });
   await page.goto("/");

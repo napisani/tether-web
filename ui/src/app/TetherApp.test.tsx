@@ -111,6 +111,34 @@ describe("gateway event lifecycle", () => {
     expect(events.closed).toBe(true);
   });
 
+  it("does not offer Settings controls without the daemon capability, including across reconnect", () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+    emitPairedPhone(events);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByText(/does not advertise Settings support/)).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /Mirror iPhone notifications/ })).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: false });
+      events.emit({ command: "gateway_status", daemon_connected: true });
+    });
+    expect(screen.getByText(/Checking tetherd Settings support/)).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+
+    act(() => {
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["settings"] });
+      events.emit({ command: "bt_status", available: true, enabled: true, device_address: "40:F6:64:3D:7A:F1",
+        ancs_enabled: true, ancs_content_enabled: true, calls_enabled: false, retention: "encrypted" });
+    });
+    expect(screen.getByRole("switch", { name: /Mirror iPhone notifications/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("switch", { name: /Mirror iPhone notifications/ }));
+    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
+      .toContainEqual({ command: "bt_set_ancs", enabled: false });
+  });
+
   it("cancels in-flight pairing when the event stream disconnects", async () => {
     vi.mocked(fetch).mockResolvedValue({ ok: true, status: 202 } as Response);
     render(<TetherApp />);

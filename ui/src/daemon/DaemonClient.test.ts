@@ -111,6 +111,16 @@ describe("parseDaemonEvent", () => {
       .toMatchObject({ command: "bt_notification_action_result", uid: 42, success: true });
   });
 
+  it("validates daemon-owned settings without discarding legacy status events", () => {
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, retention: "erase" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, ancs_content_enabled: "yes" }))).toBeUndefined();
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true, retention: "encrypted",
+      retention_ready: false, lock_on_away: true, desktop_popups_enabled: false })))
+      .toMatchObject({ retention: "encrypted", retention_ready: false, lock_on_away: true });
+    expect(parseDaemonEvent(JSON.stringify({ command: "bt_status", available: true })))
+      .toMatchObject({ command: "bt_status", available: true });
+  });
+
   it("validates Hands-Free status, call lists, and global action results", () => {
     expect(parseDaemonEvent(JSON.stringify({ command: "bt_connection_changed", calls: { available: "yes" } }))).toBeUndefined();
     expect(parseDaemonEvent(JSON.stringify({ command: "bt_calls", calls: [{ state: "incoming" }] }))).toBeUndefined();
@@ -152,6 +162,16 @@ describe("sendDaemonCommand", () => {
     await expect(sendDaemonCommand({ command: "bt_call_action", action: "hold_and_answer" } as never))
       .rejects.toThrow("invalid tetherd command");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported retention modes and accepts documented host commands", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(sendDaemonCommand({ command: "bt_set_retention", retention: "delete" } as never))
+      .rejects.toThrow("invalid tetherd command");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await sendDaemonCommand({ command: "bt_set_retention", retention: "none" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ command: "bt_set_retention", retention: "none" });
   });
 
   it("aborts a stalled command and reports a timeout", async () => {
