@@ -4,6 +4,7 @@ import { TetherApp } from "./TetherApp";
 import { DaemonCommandTimeoutError } from "../daemon/DaemonClient";
 import type { DaemonEvent } from "../protocol";
 import { daemonCommandSchema } from "../protocolSchemas";
+import { requestBody } from "../test-helpers";
 
 function parseCommandBody(body: string) {
   return daemonCommandSchema.parse(JSON.parse(body));
@@ -50,14 +51,16 @@ function emitPairedPhone(events: FakeEventSource) {
     });
     events.emit({
       command: "bt_devices",
-      devices: [{
-        address: "40:F6:64:3D:7A:F1",
-        name: "Someone’s iPhone",
-        iphone: true,
-        paired: true,
-        bonded: true,
-        connected: true,
-      }],
+      devices: [
+        {
+          address: "40:F6:64:3D:7A:F1",
+          name: "Someone’s iPhone",
+          iphone: true,
+          paired: true,
+          bonded: true,
+          connected: true,
+        },
+      ],
     });
     events.emit({
       command: "bt_connection_changed",
@@ -111,34 +114,47 @@ describe("gateway event lifecycle", () => {
     expect(events.closed).toBe(true);
   });
 
-  it("does not offer Settings controls without the daemon capability, including across reconnect", () => {
+  it("hides Settings controls without daemon capability across reconnects", () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
     render(<TetherApp />);
     const events = FakeEventSource.instances[0];
     emitPairedPhone(events);
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByText(/does not advertise Settings support/)).toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: /Mirror iPhone notifications/ })).not.toBeInTheDocument();
-    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
-      .not.toContainEqual({ command: "bt_set_ancs", enabled: false });
+    expect(
+      screen.queryByRole("switch", { name: /Mirror iPhone notifications/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(requestBody(init))),
+    ).not.toContainEqual({ command: "bt_set_ancs", enabled: false });
 
     act(() => {
       events.emit({ command: "gateway_status", daemon_connected: false });
       events.emit({ command: "gateway_status", daemon_connected: true });
     });
     expect(screen.getByText(/Checking tetherd Settings support/)).toBeInTheDocument();
-    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
-      .not.toContainEqual({ command: "bt_set_ancs", enabled: false });
+    expect(
+      vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(requestBody(init))),
+    ).not.toContainEqual({ command: "bt_set_ancs", enabled: false });
 
     act(() => {
       events.emit({ command: "protocol_info", version: 1, capabilities: ["settings"] });
-      events.emit({ command: "bt_status", available: true, enabled: true, device_address: "40:F6:64:3D:7A:F1",
-        ancs_enabled: true, ancs_content_enabled: true, calls_enabled: false, retention: "encrypted" });
+      events.emit({
+        command: "bt_status",
+        available: true,
+        enabled: true,
+        device_address: "40:F6:64:3D:7A:F1",
+        ancs_enabled: true,
+        ancs_content_enabled: true,
+        calls_enabled: false,
+        retention: "encrypted",
+      });
     });
     expect(screen.getByRole("switch", { name: /Mirror iPhone notifications/ })).toBeEnabled();
     fireEvent.click(screen.getByRole("switch", { name: /Mirror iPhone notifications/ }));
-    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
-      .toContainEqual({ command: "bt_set_ancs", enabled: false });
+    expect(
+      vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(requestBody(init))),
+    ).toContainEqual({ command: "bt_set_ancs", enabled: false });
   });
 
   it("does not render retained conversations before current MAP readiness", () => {
@@ -151,16 +167,29 @@ describe("gateway event lifecycle", () => {
       events.emit({ command: "protocol_info", version: 1, capabilities: ["messages"] });
     });
     fireEvent.click(screen.getByRole("button", { name: "Messages" }));
-    act(() => events.emit({ command: "bt_threads", threads: [
-      { thread: "tel:+15550102", name: "Previous phone private contact", preview: "Secret", unread: 2 },
-    ] }));
+    act(() =>
+      events.emit({
+        command: "bt_threads",
+        threads: [
+          {
+            thread: "tel:+15550102",
+            name: "Previous phone private contact",
+            preview: "Secret",
+            unread: 2,
+          },
+        ],
+      }),
+    );
     expect(screen.queryByText("Previous phone private contact")).not.toBeInTheDocument();
     expect(screen.queryByText("Secret")).not.toBeInTheDocument();
     expect(screen.getByText("Messages are not connected.")).toBeInTheDocument();
     expect(screen.queryByText("Loading conversations…")).not.toBeInTheDocument();
     act(() => {
       events.emit({ command: "bt_connection_changed", map_open: true });
-      events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550103", name: "Current phone" }] });
+      events.emit({
+        command: "bt_threads",
+        threads: [{ thread: "tel:+15550103", name: "Current phone" }],
+      });
     });
     expect(screen.getByText("Current phone")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Current phone/ }));
@@ -181,34 +210,60 @@ describe("gateway event lifecycle", () => {
       events.emit({ command: "protocol_info", version: 1, capabilities: ["messages"] });
       events.emit({ command: "bt_connection_changed", map_open: true });
     });
-    expect(vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body))))
-      .toContainEqual({ command: "bt_list_threads" });
+    expect(
+      vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(requestBody(init))),
+    ).toContainEqual({ command: "bt_list_threads" });
 
-    act(() => events.emit({ command: "bt_threads", threads: [
-      { thread: "tel:+15550102", unread: 2 }, { thread: "tel:+15550103", unread: 1 },
-    ] }));
+    act(() =>
+      events.emit({
+        command: "bt_threads",
+        threads: [
+          { thread: "tel:+15550102", unread: 2 },
+          { thread: "tel:+15550103", unread: 1 },
+        ],
+      }),
+    );
 
-    const messagesButton = within(screen.getByRole("navigation", { name: "Primary navigation" }))
-      .getByRole("button", { name: "Messages" });
+    const messagesButton = within(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).getByRole("button", { name: "Messages" });
 
     expect(within(messagesButton).getByText("3")).toBeInTheDocument();
 
-    const beforeRead = vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "bt_list_threads").length;
+    const beforeRead = vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([, init]) => parseCommandBody(requestBody(init)).command === "bt_list_threads",
+      ).length;
 
-    act(() => events.emit({ command: "bt_message_read", handles: ["msg-1"], read: true, success: true }));
-    expect(vi.mocked(fetch).mock.calls.filter(([, init]) => parseCommandBody(String(init?.body)).command === "bt_list_threads"))
-      .toHaveLength(beforeRead + 1);
+    act(() =>
+      events.emit({ command: "bt_message_read", handles: ["msg-1"], read: true, success: true }),
+    );
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(
+          ([, init]) => parseCommandBody(requestBody(init)).command === "bt_list_threads",
+        ),
+    ).toHaveLength(beforeRead + 1);
 
-    act(() => events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550102", unread: 0 }] }));
+    act(() =>
+      events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550102", unread: 0 }] }),
+    );
     expect(within(messagesButton).queryByText("3")).not.toBeInTheDocument();
-    act(() => events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550102", unread: 4 }] }));
+    act(() =>
+      events.emit({ command: "bt_threads", threads: [{ thread: "tel:+15550102", unread: 4 }] }),
+    );
     expect(within(messagesButton).getByText("4")).toBeInTheDocument();
     act(() => events.emit({ command: "gateway_status", daemon_connected: false }));
     expect(within(messagesButton).queryByText("4")).not.toBeInTheDocument();
   });
 
   it("keeps browser notification consent available even without daemon Settings support", () => {
-    const browserApi = Object.assign(vi.fn(), { permission: "granted", requestPermission: vi.fn() });
+    const browserApi = Object.assign(vi.fn(), {
+      permission: "granted",
+      requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+    });
 
     localStorage.clear();
     vi.stubGlobal("isSecureContext", true);
@@ -223,13 +278,19 @@ describe("gateway event lifecycle", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByText(/does not advertise Settings support/)).toBeInTheDocument();
-    const browserAlerts = screen.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ });
+
+    const browserAlerts = screen.getByRole("switch", {
+      name: /Notify when a new iPhone alert arrives/,
+    });
+
     expect(browserAlerts).not.toBeChecked();
     fireEvent.click(browserAlerts);
     expect(browserAlerts).toBeChecked();
     expect(localStorage.getItem("tether-web:browser-notifications:v1")).toBe("enabled");
     browserApi.permission = "denied";
-    act(() => window.dispatchEvent(new Event("focus")));
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
     expect(browserAlerts).not.toBeChecked();
     expect(browserAlerts).toBeDisabled();
     expect(screen.getByText(/Allow notifications for this origin/)).toBeInTheDocument();
@@ -237,13 +298,17 @@ describe("gateway event lifecycle", () => {
   });
 
   it("routes a redacted browser alert back to Notifications", () => {
-    let openNotification: () => void = () => { throw new Error("Expected a browser alert"); };
+    let openNotification: () => void = () => {
+      throw new Error("Expected a browser alert");
+    };
 
     const notifications: string[] = [];
 
     class BrowserAlert {
       static permission: NotificationPermission = "granted";
-      static requestPermission = vi.fn<() => Promise<NotificationPermission>>().mockResolvedValue("granted");
+      static requestPermission = vi
+        .fn<() => Promise<NotificationPermission>>()
+        .mockResolvedValue("granted");
       onclick: (() => void) | null = null;
       close = vi.fn<() => void>();
 
@@ -264,13 +329,29 @@ describe("gateway event lifecycle", () => {
 
     act(() => {
       events.emit({ command: "gateway_status", daemon_connected: true });
-      events.emit({ command: "protocol_info", version: 1, capabilities: ["notifications", "settings"] });
-      events.emit({ command: "bt_status", available: true, ancs_enabled: true, device_address: "AA" });
+      events.emit({
+        command: "protocol_info",
+        version: 1,
+        capabilities: ["notifications", "settings"],
+      });
+      events.emit({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: true,
+        device_address: "AA",
+      });
       events.emit({ command: "bt_connection_changed", ancs_ready: true });
     });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ }));
-    act(() => events.emit({ command: "bt_notification", uid: 44, title: "Private title", body: "Private body" }));
+    act(() =>
+      events.emit({
+        command: "bt_notification",
+        uid: 44,
+        title: "Private title",
+        body: "Private body",
+      }),
+    );
     expect(notifications).toEqual(["New iPhone notification"]);
     act(() => openNotification());
     expect(screen.getByRole("heading", { name: "Notifications" })).toBeInTheDocument();
@@ -283,7 +364,11 @@ describe("gateway event lifecycle", () => {
     const events = FakeEventSource.instances[0];
     act(() => {
       events.emit({ command: "gateway_status", daemon_connected: true });
-      events.emit({ command: "protocol_info", version: 1, capabilities: ["messages", "contacts", "notifications", "settings"] });
+      events.emit({
+        command: "protocol_info",
+        version: 1,
+        capabilities: ["messages", "contacts", "notifications", "settings"],
+      });
       events.emit({ command: "bt_status", available: true, calls_enabled: false });
     });
     expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
@@ -297,7 +382,8 @@ describe("gateway event lifecycle", () => {
     expect(screen.getByRole("button", { name: "Calls" })).toBeInTheDocument();
 
     const navOrder = within(screen.getByRole("navigation", { name: "Primary navigation" }))
-      .getAllByRole("button").map((button) => button.textContent);
+      .getAllByRole("button")
+      .map((button) => button.textContent);
 
     expect(navOrder.indexOf("Contacts")).toBeLessThan(navOrder.indexOf("Calls"));
     fireEvent.keyDown(document, { key: "5", ctrlKey: true });
@@ -360,23 +446,31 @@ describe("gateway event lifecycle", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Pair over Bluetooth" }));
-    const command = parseCommandBody(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body));
+    const command = parseCommandBody(requestBody(vi.mocked(fetch).mock.calls.at(-1)?.[1]));
 
     if (command.command !== "bt_pair") throw new Error("expected a pairing command");
-    act(() => events.emit({
-      command: "bt_pair_confirm_request",
-      operation_id: command.operation_id,
-      code: "042731",
-    }));
-    expect(screen.getByRole("dialog", { name: "Does your iPhone show this code?" })).toBeInTheDocument();
+    act(() =>
+      events.emit({
+        command: "bt_pair_confirm_request",
+        operation_id: command.operation_id,
+        code: "042731",
+      }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Does your iPhone show this code?" }),
+    ).toBeInTheDocument();
 
     act(() => events.fail());
 
-    expect(screen.queryByRole("dialog", { name: "Does your iPhone show this code?" })).not.toBeInTheDocument();
-    expect(screen.getByText("Connection to tetherd was lost. Try again after it reconnects.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("dialog", { name: "Does your iPhone show this code?" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Connection to tetherd was lost. Try again after it reconnects."),
+    ).toBeInTheDocument();
   });
 
-  it("refreshes Bluetooth state through existing daemon commands after pair or unpair completes", async () => {
+  it("refreshes Bluetooth state after pair and unpair results", async () => {
     vi.mocked(fetch).mockResolvedValue({ ok: true, status: 202 } as Response);
     render(<TetherApp />);
     const events = FakeEventSource.instances[0];
@@ -399,7 +493,10 @@ describe("gateway event lifecycle", () => {
     });
 
     await waitFor(() => {
-      const commands = vi.mocked(fetch).mock.calls.map(([, init]) => parseCommandBody(String(init?.body)));
+      const commands = vi
+        .mocked(fetch)
+        .mock.calls.map(([, init]) => parseCommandBody(requestBody(init)));
+
       expect(commands.filter((command) => command.command === "bt_status")).toHaveLength(2);
       expect(commands.filter((command) => command.command === "bt_list_devices")).toHaveLength(2);
     });
@@ -423,9 +520,13 @@ describe("gateway event lifecycle", () => {
       });
 
       fireEvent.click(screen.getByRole("button", { name: "Pair over Bluetooth" }));
-      act(() => vi.advanceTimersByTime(5 * 60_000));
+      act(() => {
+        vi.advanceTimersByTime(5 * 60_000);
+      });
 
-      expect(screen.getByText("Timed out waiting for tetherd to finish Bluetooth pairing.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Timed out waiting for tetherd to finish Bluetooth pairing."),
+      ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Dismiss" })).toBeEnabled();
     } finally {
       vi.useRealTimers();
@@ -442,10 +543,16 @@ describe("gateway event lifecycle", () => {
       emitPairedPhone(events);
 
       fireEvent.click(screen.getByRole("button", { name: "Forget iPhone" }));
-      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Forget iPhone" }));
-      act(() => vi.advanceTimersByTime(30_000));
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Forget iPhone" }),
+      );
+      act(() => {
+        vi.advanceTimersByTime(30_000);
+      });
 
-      expect(screen.getByText("Timed out waiting for tetherd to remove the Bluetooth pairing.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Timed out waiting for tetherd to remove the Bluetooth pairing."),
+      ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Dismiss" })).toBeEnabled();
     } finally {
       vi.useRealTimers();
@@ -465,7 +572,9 @@ describe("gateway event lifecycle", () => {
     expect(screen.getByRole("heading", { name: "Tether is reconnecting" })).toBeInTheDocument();
     act(() => events.emit({ command: "gateway_status", daemon_connected: true }));
 
-    expect(screen.getByText("Bluetooth operation stopped while Tether reconnects.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Bluetooth operation stopped while Tether reconnects."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show iPhone Permissions" })).toBeEnabled();
   });
 
@@ -477,11 +586,13 @@ describe("gateway event lifecycle", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: /Connect to this iPhone/ }));
 
-    expect(parseCommandBody(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body))).toEqual({
+    expect(parseCommandBody(requestBody(vi.mocked(fetch).mock.calls.at(-1)?.[1]))).toEqual({
       command: "bt_set_enabled",
       enabled: false,
     });
-    expect(await screen.findByText("Could not update the Bluetooth preference.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Could not update the Bluetooth preference."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /Connect to this iPhone/ })).toBeEnabled();
     expect(screen.getByRole("checkbox", { name: /Connect to this iPhone/ })).toBeChecked();
   });
@@ -496,10 +607,18 @@ describe("gateway event lifecycle", () => {
       emitPairedPhone(events);
 
       fireEvent.click(screen.getByRole("button", { name: "Show iPhone Permissions" }));
-      expect(parseCommandBody(String(vi.mocked(fetch).mock.calls.at(-1)?.[1]?.body))).toEqual({ command: "bt_solicit" });
-      act(() => vi.advanceTimersByTime(60_000));
+      expect(parseCommandBody(requestBody(vi.mocked(fetch).mock.calls.at(-1)?.[1]))).toEqual({
+        command: "bt_solicit",
+      });
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
 
-      expect(screen.getByText("No permission result arrived from tetherd. Check the iPhone, then try again.")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "No permission result arrived from tetherd. Check the iPhone, then try again.",
+        ),
+      ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Show iPhone Permissions" })).toBeEnabled();
     } finally {
       vi.useRealTimers();

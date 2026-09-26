@@ -1,20 +1,35 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BluetoothStatusEvent } from "../../protocol";
+import { requestBody } from "../../test-helpers";
 import { useSettings } from "./useSettings";
 
 const status: BluetoothStatusEvent = {
-  command: "bt_status", available: true, enabled: true, device_address: "AA:BB", ancs_enabled: true,
-  ancs_content_enabled: true, calls_enabled: false, retention: "encrypted", retention_ready: true,
+  command: "bt_status",
+  available: true,
+  enabled: true,
+  device_address: "AA:BB",
+  ancs_enabled: true,
+  ancs_content_enabled: true,
+  calls_enabled: false,
+  retention: "encrypted",
+  retention_ready: true,
 };
 
 function commands() {
-  return vi.mocked(fetch).mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+  return vi
+    .mocked(fetch)
+    .mock.calls.map(([, init]) => JSON.parse(requestBody(init)) as Record<string, unknown>);
 }
 
-beforeEach(() => vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 202 }))));
+beforeEach(() =>
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 202 }))),
+);
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 function connect(result: { current: ReturnType<typeof useSettings> }) {
   act(() => result.current.handleEvent({ command: "gateway_status", daemon_connected: true }));
@@ -22,7 +37,7 @@ function connect(result: { current: ReturnType<typeof useSettings> }) {
 }
 
 describe("Settings lifecycle", () => {
-  it("refreshes from authoritative host status when visible and never optimistically checks a switch", () => {
+  it("refreshes host status when visible without optimistically checking switches", () => {
     const { result } = renderHook(() => useSettings(true));
     connect(result);
     expect(commands()).toContainEqual({ command: "bt_status" });
@@ -38,13 +53,15 @@ describe("Settings lifecycle", () => {
     expect(result.current.state).toMatchObject({ pending: null, status: { ancs_enabled: false } });
   });
 
-  it("requires a bond for host controls, enforces ANCS dependency, and accepts retention only when supported", () => {
+  it("requires a bond and ANCS for host controls, and checks retention support", () => {
     const { result } = renderHook(() => useSettings(false));
     connect(result);
     act(() => result.current.handleEvent({ ...status, device_address: "" }));
     act(() => result.current.setRetention("none"));
     act(() => result.current.toggle("calls_enabled", true));
-    expect(commands().filter((command) => String(command.command).startsWith("bt_set"))).toEqual([]);
+    expect(commands().filter((command) => String(command.command).startsWith("bt_set"))).toEqual(
+      [],
+    );
     act(() => result.current.handleEvent({ ...status, ancs_enabled: false }));
     act(() => result.current.toggle("ancs_content_enabled", false));
     expect(commands().filter((command) => command.command === "bt_set_ancs_content")).toEqual([]);
@@ -60,14 +77,23 @@ describe("Settings lifecycle", () => {
     expect(commands()).toContainEqual({ command: "bt_set_calls", enabled: true });
   });
 
-  it("ignores superseded refresh failures and clears an old refresh alert on host status", async () => {
+  it("ignores stale refresh failures and clears alerts on host status", async () => {
     const rejectRequests: Array<(error: Error) => void> = [];
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise<Response>((_, reject) => {
-      rejectRequests.push(reject);
-    })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        () =>
+          new Promise<Response>((_, reject) => {
+            rejectRequests.push(reject);
+          }),
+      ),
+    );
     const { result } = renderHook(() => useSettings(true));
     connect(result);
-    act(() => { result.current.refresh(); result.current.refresh(); });
+    act(() => {
+      result.current.refresh();
+      result.current.refresh();
+    });
     expect(rejectRequests).toHaveLength(3);
     act(() => result.current.handleEvent(status));
     await act(async () => {
@@ -88,7 +114,9 @@ describe("Settings lifecycle", () => {
     const { result } = renderHook(() => useSettings(false));
     connect(result);
     act(() => result.current.setRetention("none"));
-    act(() => vi.advanceTimersByTime(12_000));
+    act(() => {
+      vi.advanceTimersByTime(12_000);
+    });
     expect(result.current.state.pending?.phase).toBe("uncertain");
     act(() => result.current.setRetention("none"));
     expect(commands().filter((command) => command.command === "bt_set_retention")).toHaveLength(1);
@@ -107,7 +135,15 @@ describe("Settings lifecycle", () => {
   it("ignores stale failed refreshes after disconnect", async () => {
     let rejectRequest: (error: Error) => void = () => {};
 
-    vi.stubGlobal("fetch", vi.fn().mockImplementationOnce(() => new Promise<Response>((_, reject) => { rejectRequest = reject; })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementationOnce(
+        () =>
+          new Promise<Response>((_, reject) => {
+            rejectRequest = reject;
+          }),
+      ),
+    );
     const { result } = renderHook(() => useSettings(true));
     act(() => result.current.handleEvent({ command: "gateway_status", daemon_connected: true }));
     act(() => result.current.handleDisconnect());

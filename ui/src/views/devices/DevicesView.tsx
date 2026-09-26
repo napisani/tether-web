@@ -63,14 +63,19 @@ export function DevicesView({
 
   const connection = state.connection;
   const pairingAvailable = daemon.protocol?.capabilities.includes("bluetooth.pairing") === true;
-  const bluetoothControlAvailable = daemon.protocol?.capabilities.includes("bluetooth.connection") === true;
+
+  const bluetoothControlAvailable =
+    daemon.protocol?.capabilities.includes("bluetooth.connection") === true;
+
   const peerDiscoveryAvailable = daemon.protocol?.capabilities.includes("peers") === true;
   // Browser bytes are staged by the gateway; tetherd only needs send_file.
   const fileUploadAvailable = daemon.protocol?.capabilities.includes("files") === true;
   const bluetoothAvailable = state.bluetooth?.available ?? false;
 
   const isConfiguredDevice = Boolean(
-    configuredAddress && selectedDevice && configuredAddress.toUpperCase() === selectedDevice.address.toUpperCase(),
+    configuredAddress &&
+    selectedDevice &&
+    configuredAddress.toUpperCase() === selectedDevice.address.toUpperCase(),
   );
 
   return (
@@ -168,7 +173,8 @@ function DeviceContent({
   pairingAvailable: boolean;
   bluetoothControlAvailable: boolean;
   fileUploadAvailable: boolean;
-  clipboardAvailable: boolean;  isConfiguredDevice: boolean;
+  clipboardAvailable: boolean;
+  isConfiguredDevice: boolean;
   state: DevicesState;
   connection: DevicesState["connection"];
   peerActions: PeerActions;
@@ -184,8 +190,13 @@ function DeviceContent({
 }) {
   return (
     <section className="device-pane quiet-scrollbar">
-      {!daemonConnected ? <Notice title="Tether is reconnecting" body="The web interface cannot reach tetherd yet. It will retry automatically." />
-        : selectedPeer ? <PeerPane
+      {!daemonConnected ? (
+        <Notice
+          title="Tether is reconnecting"
+          body="The web interface cannot reach tetherd yet. It will retry automatically."
+        />
+      ) : selectedPeer ? (
+        <PeerPane
           peer={selectedPeer}
           wifi={state.wifi}
           actions={peerActions}
@@ -194,16 +205,27 @@ function DeviceContent({
           clipboardAvailable={clipboardAvailable}
           onForget={() => onForgetPeer(selectedPeer.fingerprint)}
         />
-        : !bluetoothAvailable && !selectedDevice ? <Notice title="Bluetooth is not ready" body="Complete the host Bluetooth setup, then restart the Tether deployment." />
-        : selectedDevice?.airpods ? <AirPodsPane
+      ) : !bluetoothAvailable && !selectedDevice ? (
+        <Notice
+          title="Bluetooth is not ready"
+          body="Complete the host Bluetooth setup, then restart the Tether deployment."
+        />
+      ) : selectedDevice?.airpods ? (
+        <AirPodsPane
           device={selectedDevice}
           airpods={state.airpods?.address === selectedDevice.address ? state.airpods : undefined}
           bluetooth={state.bluetooth}
           connectingAddress={state.airpodsConnectingAddress}
-          message={!state.airpodsMessage?.address || state.airpodsMessage.address === selectedDevice.address ? state.airpodsMessage?.text : undefined}
+          message={
+            !state.airpodsMessage?.address ||
+            state.airpodsMessage.address === selectedDevice.address
+              ? state.airpodsMessage?.text
+              : undefined
+          }
           actions={airpodsActions}
         />
-        : selectedDevice ? <DevicePane
+      ) : selectedDevice ? (
+        <DevicePane
           device={selectedDevice}
           bluetooth={state.bluetooth}
           connection={isConfiguredDevice ? connection : undefined}
@@ -219,13 +241,26 @@ function DeviceContent({
           onSetBluetoothEnabled={onSetBluetoothEnabled}
           onSolicitPermissions={onSolicitPermissions}
         />
-        : <Welcome onScan={onScan} scanning={state.scanning} pairingAvailable={pairingAvailable} />}
-      {state.pairing.phase !== "idle" ? <PairingProgress pairing={state.pairing} onReset={onResetPairing} /> : null}
+      ) : (
+        <Welcome onScan={onScan} scanning={state.scanning} pairingAvailable={pairingAvailable} />
+      )}
+      {state.pairing.phase !== "idle" ? (
+        <PairingProgress pairing={state.pairing} onReset={onResetPairing} />
+      ) : null}
     </section>
   );
 }
 
-function DeviceDialogs({ state, forgetFingerprint, forgetAddress, onConfirmPairing, onCancelPeer, onForgetPeer, onCancelDevice, onUnpair }: {
+function DeviceDialogs({
+  state,
+  forgetFingerprint,
+  forgetAddress,
+  onConfirmPairing,
+  onCancelPeer,
+  onForgetPeer,
+  onCancelDevice,
+  onUnpair,
+}: {
   state: DevicesState;
   forgetFingerprint?: string;
   forgetAddress?: string;
@@ -235,19 +270,35 @@ function DeviceDialogs({ state, forgetFingerprint, forgetAddress, onConfirmPairi
   onCancelDevice: () => void;
   onUnpair: (address: string) => void;
 }) {
-  const peer = forgetFingerprint ? state.wifi.peers.find((candidate) => candidate.fingerprint === forgetFingerprint) : undefined;
+  const peer = forgetFingerprint
+    ? state.wifi.peers.find((candidate) => candidate.fingerprint === forgetFingerprint)
+    : undefined;
 
-  return <>
-    {state.pairing.phase === "confirming" && state.pairing.code ? <PairingCodeDialog code={state.pairing.code} onAnswer={onConfirmPairing} /> : null}
-    {forgetFingerprint ? <ConfirmPeerForgetDialog
-      name={peer?.name || "this device"}
-      onCancel={onCancelPeer}
-      onConfirm={() => { if (peer) onForgetPeer(peer); onCancelPeer(); }}
-    /> : null}
-    {forgetAddress ? <ConfirmForgetDialog
-      name={deviceDisplayName(state.devices.find((device) => device.address === forgetAddress))}
-      onCancel={onCancelDevice}
-      onConfirm={() => { onUnpair(forgetAddress); onCancelDevice(); }}
-    /> : null}
-  </>;
+  return (
+    <>
+      {state.pairing.phase === "confirming" && state.pairing.code ? (
+        <PairingCodeDialog code={state.pairing.code} onAnswer={onConfirmPairing} />
+      ) : null}
+      {forgetFingerprint ? (
+        <ConfirmPeerForgetDialog
+          name={peer?.name || "this device"}
+          onCancel={onCancelPeer}
+          onConfirm={() => {
+            if (peer) onForgetPeer(peer);
+            onCancelPeer();
+          }}
+        />
+      ) : null}
+      {forgetAddress ? (
+        <ConfirmForgetDialog
+          name={deviceDisplayName(state.devices.find((device) => device.address === forgetAddress))}
+          onCancel={onCancelDevice}
+          onConfirm={() => {
+            onUnpair(forgetAddress);
+            onCancelDevice();
+          }}
+        />
+      ) : null}
+    </>
+  );
 }

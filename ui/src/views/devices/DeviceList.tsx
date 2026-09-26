@@ -34,12 +34,17 @@ export function DeviceList({
   onScan: () => void;
 }) {
   const bluetoothScanAvailable = pairingAvailable && bluetoothAvailable;
-  const scanDisabled = scanning || discovering || (!bluetoothScanAvailable && !peerDiscoveryAvailable);
+
+  const scanDisabled =
+    scanning || discovering || (!bluetoothScanAvailable && !peerDiscoveryAvailable);
+
   const empty = devices.length === 0 && peers.length === 0;
 
   return (
     <aside className="device-list-pane">
-      <div className="device-list-heading"><h1>Devices</h1></div>
+      <div className="device-list-heading">
+        <h1>Devices</h1>
+      </div>
 
       <div className="device-list quiet-scrollbar" aria-live="polite">
         {empty ? (
@@ -57,10 +62,20 @@ export function DeviceList({
             key={`wifi:${peer.fingerprint}`}
             onClick={() => onSelectPeer(peer.fingerprint)}
           >
-            <span className="device-glyph" aria-hidden="true">⌁</span>
+            <span className="device-glyph" aria-hidden="true">
+              ⌁
+            </span>
             <span className="device-copy">
               <strong>{peer.name}</strong>
-              <small>{peer.connected ? "Connected" : peer.paired ? "Offline" : peer.pending ? "Approval needed" : "Nearby"}</small>
+              <small>
+                {peer.connected
+                  ? "Connected"
+                  : peer.paired
+                    ? "Offline"
+                    : peer.pending
+                      ? "Approval needed"
+                      : "Nearby"}
+              </small>
             </span>
             <span className={`row-dot ${peer.connected ? "online" : ""}`} aria-hidden="true" />
           </button>
@@ -73,13 +88,25 @@ export function DeviceList({
             key={`bluetooth:${device.address}`}
             onClick={() => onSelect(device.address)}
           >
-            <span className="device-glyph" aria-hidden="true">{device.airpods ? "◖◗" : "▯"}</span>
+            <span className="device-glyph" aria-hidden="true">
+              {device.airpods ? "◖◗" : "▯"}
+            </span>
             <span className="device-copy">
               <strong>{deviceDisplayName(device)}</strong>
               <small>
                 {device.airpods
-                  ? device.connected ? "Connected" : device.paired ? "Paired" : "Nearby"
-                  : device.connected ? "Connected" : device.paired ? "Paired" : device.iphone ? "Ready to pair" : "Possible iPhone"}
+                  ? device.connected
+                    ? "Connected"
+                    : device.paired
+                      ? "Paired"
+                      : "Nearby"
+                  : device.connected
+                    ? "Connected"
+                    : device.paired
+                      ? "Paired"
+                      : device.iphone
+                        ? "Ready to pair"
+                        : "Possible iPhone"}
               </small>
             </span>
             <span className={`row-dot ${device.connected ? "online" : ""}`} aria-hidden="true" />
@@ -88,12 +115,26 @@ export function DeviceList({
       </div>
 
       <button className="scan-button" type="button" onClick={onScan} disabled={scanDisabled}>
-        {scanning || discovering ? <span className="spinner" aria-hidden="true" /> : <span aria-hidden="true">↻</span>}
+        {scanning || discovering ? (
+          <span className="spinner" aria-hidden="true" />
+        ) : (
+          <span aria-hidden="true">↻</span>
+        )}
         {scanning || discovering ? "Scanning…" : "Scan for devices"}
       </button>
-      {scanMessage ? <p className="device-list-message" role="status"><strong>Bluetooth:</strong> {scanMessage}</p> : null}
-      {peerMessage ? <p className="device-list-message" role="status"><strong>Wi-Fi:</strong> {peerMessage}</p> : null}
-      {!pairingAvailable && devices.length > 0 ? <p className="device-list-message">Bluetooth pairing needs a newer tetherd.</p> : null}
+      {scanMessage ? (
+        <p className="device-list-message" role="status">
+          <strong>Bluetooth:</strong> {scanMessage}
+        </p>
+      ) : null}
+      {peerMessage ? (
+        <p className="device-list-message" role="status">
+          <strong>Wi-Fi:</strong> {peerMessage}
+        </p>
+      ) : null}
+      {!pairingAvailable && devices.length > 0 ? (
+        <p className="device-list-message">Bluetooth pairing needs a newer tetherd.</p>
+      ) : null}
     </aside>
   );
 }

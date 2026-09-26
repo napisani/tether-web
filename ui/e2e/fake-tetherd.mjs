@@ -70,7 +70,14 @@ const durable = {
   protocol_info: {
     command: "protocol_info",
     version: 1,
-    capabilities: ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers", "settings"],
+    capabilities: [
+      "airpods",
+      "bluetooth.connection",
+      "bluetooth.pairing",
+      "files",
+      "peers",
+      "settings",
+    ],
   },
   bt_status: baseBluetoothStatus(),
   bt_devices: { command: "bt_devices", devices: [] },
@@ -159,13 +166,36 @@ function setPhonePaired(paired) {
 }
 
 function resetNotificationScenario(withMessages, withNotifications) {
-  phoneNotifications = withNotifications ? [
-    { uid: 42, app_id: "com.example.mail", app_name: "Mail", title: "A letter", subtitle: "Sender",
-      body: "Hello from your iPhone", timestamp: 1_700_000_000, negative_action: true },
-    { uid: 43, app_id: "com.example.calendar", app_name: "Calendar", body: "Appointment",
-      timestamp: 1_700_000_020, negative_action: false },
-  ] : [];
-  durable.protocol_info.capabilities = ["airpods", "bluetooth.connection", "bluetooth.pairing", "files", "peers", "settings"];
+  phoneNotifications = withNotifications
+    ? [
+        {
+          uid: 42,
+          app_id: "com.example.mail",
+          app_name: "Mail",
+          title: "A letter",
+          subtitle: "Sender",
+          body: "Hello from your iPhone",
+          timestamp: 1_700_000_000,
+          negative_action: true,
+        },
+        {
+          uid: 43,
+          app_id: "com.example.calendar",
+          app_name: "Calendar",
+          body: "Appointment",
+          timestamp: 1_700_000_020,
+          negative_action: false,
+        },
+      ]
+    : [];
+  durable.protocol_info.capabilities = [
+    "airpods",
+    "bluetooth.connection",
+    "bluetooth.pairing",
+    "files",
+    "peers",
+    "settings",
+  ];
 
   if (withMessages) durable.protocol_info.capabilities.push("messages");
 
@@ -173,25 +203,39 @@ function resetNotificationScenario(withMessages, withNotifications) {
 }
 
 function resetCallsScenario(withCalls) {
-  phoneCalls = withCalls ? [
-    { path: "/call/1", name: "Ada", number: "+15550102", state: "incoming", ringing: true },
-    { path: "/call/2", number: "", withheld: true, state: "active", connected: true },
-  ] : [];
+  phoneCalls = withCalls
+    ? [
+        { path: "/call/1", name: "Ada", number: "+15550102", state: "incoming", ringing: true },
+        { path: "/call/2", number: "", withheld: true, state: "active", connected: true },
+      ]
+    : [];
   durable.bt_status.calls_enabled = withCalls;
 
   if (withCalls) {
     durable.protocol_info.capabilities.push("calls");
-    durable.bt_connection_changed = { ...durable.bt_connection_changed,
-      calls: { available: true, reason: "Calls are controlled here; audio plays on the iPhone.",
-        audio: "idle", indicators: true, operator: "Carrier", signal: 4, battery: 3, service: true } };
+    durable.bt_connection_changed = {
+      ...durable.bt_connection_changed,
+      calls: {
+        available: true,
+        reason: "Calls are controlled here; audio plays on the iPhone.",
+        audio: "idle",
+        indicators: true,
+        operator: "Carrier",
+        signal: 4,
+        battery: 3,
+        service: true,
+      },
+    };
   }
 }
 
 function resetContactsScenario(withContacts) {
-  phoneContacts = withContacts ? [
-    { name: "Ada", addresses: ["tel:+15550102", "email:ada@example.com"] },
-    { name: "Grace", addresses: ["tel:+15550103"] },
-  ] : [];
+  phoneContacts = withContacts
+    ? [
+        { name: "Ada", addresses: ["tel:+15550102", "email:ada@example.com"] },
+        { name: "Grace", addresses: ["tel:+15550103"] },
+      ]
+    : [];
 
   if (withContacts) durable.protocol_info.capabilities.push("contacts");
 }
@@ -199,22 +243,67 @@ function resetContactsScenario(withContacts) {
 function expandLongMessages(enabled) {
   if (!enabled || !messageThreads.length) return;
 
-  messageThreads.push(...Array.from({ length: 45 }, (_, index) => ({
-    thread: `tel:+155502${String(index).padStart(2, "0")}`, name: `Contact ${index + 1}`,
-    preview: `Conversation ${index + 1}`, timestamp: 1_700_000_000 - index, repliable: true,
-  })));
-  messageHistory.push(...Array.from({ length: 80 }, (_, index) => ({
-    handle: `message-${index + 2}`, thread: "tel:+15550102", body: `Test message ${index + 2}`,
-    timestamp: 1_700_000_300 + index * 300, outgoing: index % 2 === 0, read: true,
-  })));
+  messageThreads.push(
+    ...Array.from({ length: 45 }, (_, index) => ({
+      thread: `tel:+155502${String(index).padStart(2, "0")}`,
+      name: `Contact ${index + 1}`,
+      preview: `Conversation ${index + 1}`,
+      timestamp: 1_700_000_000 - index,
+      repliable: true,
+    })),
+  );
+  messageHistory.push(
+    ...Array.from({ length: 80 }, (_, index) => ({
+      handle: `message-${index + 2}`,
+      thread: "tel:+15550102",
+      body: `Test message ${index + 2}`,
+      timestamp: 1_700_000_300 + index * 300,
+      outgoing: index % 2 === 0,
+      read: true,
+    })),
+  );
 }
 
-function reset({ paired = false, withAirPods = false, withPeer = false, discoverPeer = false, bluetoothSetup = false, withMessages = false, longMessages, withNotifications = false, withCalls = false, withContacts = false } = {}) {
+function reset({
+  paired = false,
+  withAirPods = false,
+  withPeer = false,
+  discoverPeer = false,
+  bluetoothSetup = false,
+  withMessages = false,
+  longMessages,
+  withNotifications = false,
+  withCalls = false,
+  withContacts = false,
+} = {}) {
   for (const timer of timers) clearTimeout(timer);
   timers.clear();
   discoverablePeers = discoverPeer || withPeer ? [peer] : [];
-  messageThreads = withMessages ? [{ thread: "tel:+15550102", name: "Ada", address: "+15550102", preview: "See you soon", timestamp: 1_700_000_000, unread: 1, repliable: true }] : [];
-  messageHistory = withMessages ? [{ handle: "message-1", thread: "tel:+15550102", body: "See you soon", timestamp: 1_700_000_000, outgoing: false, read: false }] : [];
+  messageThreads = withMessages
+    ? [
+        {
+          thread: "tel:+15550102",
+          name: "Ada",
+          address: "+15550102",
+          preview: "See you soon",
+          timestamp: 1_700_000_000,
+          unread: 1,
+          repliable: true,
+        },
+      ]
+    : [];
+  messageHistory = withMessages
+    ? [
+        {
+          handle: "message-1",
+          thread: "tel:+15550102",
+          body: "See you soon",
+          timestamp: 1_700_000_000,
+          outgoing: false,
+          read: false,
+        },
+      ]
+    : [];
   expandLongMessages(longMessages);
   resetNotificationScenario(withMessages, withNotifications);
   durable.bt_status = baseBluetoothStatus();
@@ -230,10 +319,12 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
     durable.bt_status.capability = {
       mode: "compatibility",
       reasons: ["The adapter cannot advertise as a peripheral."],
-      setup: [{
-        what: "Enable BlueZ experimental mode, then restart Bluetooth.",
-        command: "sudo systemctl restart bluetooth",
-      }],
+      setup: [
+        {
+          what: "Enable BlueZ experimental mode, then restart Bluetooth.",
+          command: "sudo systemctl restart bluetooth",
+        },
+      ],
     };
     durable.bt_connection_changed = {
       ...connectedConnection(),
@@ -245,13 +336,17 @@ function reset({ paired = false, withAirPods = false, withPeer = false, discover
   }
 
   if (withPeer) {
-    durable.state_snapshot.pending_pairs = [{ fingerprint: peer.fingerprint, device_name: peer.name }];
-    durable.state_snapshot.connected_clients = [{
-      fingerprint: peer.fingerprint,
-      device_name: peer.name,
-      address: peer.addresses[0].address,
-      paired: false,
-    }];
+    durable.state_snapshot.pending_pairs = [
+      { fingerprint: peer.fingerprint, device_name: peer.name },
+    ];
+    durable.state_snapshot.connected_clients = [
+      {
+        fingerprint: peer.fingerprint,
+        device_name: peer.name,
+        address: peer.addresses[0].address,
+        paired: false,
+      },
+    ];
     durable.state_snapshot.discovered_devices = [peer];
   }
 
@@ -317,29 +412,57 @@ function handleCommand(command) {
 const commandHandlers = {
   protocol_info: () => later(() => publish(durable.protocol_info), 10),
   bt_status: () => later(() => publish(durable.bt_status), 10),
-  discover: () => later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10),
+  discover: () =>
+    later(() => publish({ command: "discovery_result", devices: discoverablePeers }), 10),
   accept_device: () => {
     durable.state_snapshot.pending_pairs = [];
-    durable.state_snapshot.paired_devices = [{ fingerprint: peer.fingerprint, device_name: peer.name }];
+    durable.state_snapshot.paired_devices = [
+      { fingerprint: peer.fingerprint, device_name: peer.name },
+    ];
     durable.state_snapshot.connected_clients[0].paired = true;
-    publish({ command: "pair_accepted", fingerprint: peer.fingerprint, device_name: peer.name, connected: true });
+    publish({
+      command: "pair_accepted",
+      fingerprint: peer.fingerprint,
+      device_name: peer.name,
+      connected: true,
+    });
   },
   pair_request: (command) => {
-    publish({ command: "pair_outbound_pending", fingerprint: peer.fingerprint, device_name: command.device_name, address: command.host });
-    later(() => publish({ command: "pair_accepted", fingerprint: peer.fingerprint, device_name: peer.name, connected: true }), 10);
+    publish({
+      command: "pair_outbound_pending",
+      fingerprint: peer.fingerprint,
+      device_name: command.device_name,
+      address: command.host,
+    });
+    later(
+      () =>
+        publish({
+          command: "pair_accepted",
+          fingerprint: peer.fingerprint,
+          device_name: peer.name,
+          connected: true,
+        }),
+      10,
+    );
   },
   forget_device: (command) => {
     durable.state_snapshot.paired_devices = [];
     durable.state_snapshot.connected_clients = [];
     publish({ command: "forget_device_result", fingerprint: command.fingerprint, forgotten: true });
   },
-  send_file: (command) => later(() => {
-    // Reading the staged path checks that the real gateway finished writing it.
-    if (!command.operation_id || !existsSync(command.path)) return;
-    readFileSync(command.path);
-    publish({ command: "file_send_complete", operation_id: command.operation_id,
-      filename: basename(command.path), success: true, message: "File sent." });
-  }, 20),
+  send_file: (command) =>
+    later(() => {
+      // Reading the staged path checks that the real gateway finished writing it.
+      if (!command.operation_id || !existsSync(command.path)) return;
+      readFileSync(command.path);
+      publish({
+        command: "file_send_complete",
+        operation_id: command.operation_id,
+        filename: basename(command.path),
+        success: true,
+        message: "File sent.",
+      });
+    }, 20),
   bt_scan: () => {
     later(() => publish({ command: "bt_devices", devices: [phone] }), 20);
     later(() => {
@@ -347,10 +470,20 @@ const commandHandlers = {
       publish({ command: "bt_devices", devices: [] });
     }, 40);
   },
-  bt_pair: (command) => later(() => {
-    publish({ command: "bt_pair_progress", operation_id: command.operation_id, step: "pair", detail: "Waiting for the iPhone" });
-    publish({ command: "bt_pair_confirm_request", operation_id: command.operation_id, code: "042731" });
-  }, 20),
+  bt_pair: (command) =>
+    later(() => {
+      publish({
+        command: "bt_pair_progress",
+        operation_id: command.operation_id,
+        step: "pair",
+        detail: "Waiting for the iPhone",
+      });
+      publish({
+        command: "bt_pair_confirm_request",
+        operation_id: command.operation_id,
+        code: "042731",
+      });
+    }, 20),
   bt_pair_confirm: (command) => later(() => finishPairing(command), 20),
   bt_set_enabled: (command) => {
     durable.bt_status.enabled = command.enabled;
@@ -366,7 +499,9 @@ const commandHandlers = {
   },
   bt_set_calls: (command) => {
     durable.bt_status.calls_enabled = command.enabled;
-    durable.protocol_info.capabilities = durable.protocol_info.capabilities.filter((item) => item !== "calls");
+    durable.protocol_info.capabilities = durable.protocol_info.capabilities.filter(
+      (item) => item !== "calls",
+    );
 
     if (command.enabled) durable.protocol_info.capabilities.push("calls");
     publish(durable.bt_status);
@@ -375,60 +510,123 @@ const commandHandlers = {
     durable.bt_status.retention = command.retention;
     publish(durable.bt_status);
   },
-  bt_solicit: () => later(() => publish({ command: "bt_solicit_result", success: true, message: "Asked the iPhone to re-offer notification access." }), 20),
-  bt_list_threads: () => later(() => publish({ command: "bt_threads", threads: messageThreads }), 10),
-  bt_list_messages: (command) => later(() => publish({ command: "bt_messages", thread: command.thread, messages: messageHistory.filter((item) => item.thread === command.thread) }), 10),
-  bt_list_contacts: (command) => later(() => {
-    const query = (command.query || "").toLowerCase();
-    const available = query && !phoneContacts.length ? [{ name: "Ada", addresses: ["tel:+15550102"] }] : phoneContacts;
-    publish({ command: "bt_contacts", query: command.query || "",
-      contacts: available.filter((item) => `${item.name} ${item.addresses.join(" ")}`.toLowerCase().includes(query)).slice(0, command.limit || 5000) });
-  }, 10),
-  bt_mark_read: (command) => later(() => {
-    messageHistory = messageHistory.map((item) => command.handles.includes(item.handle) ? { ...item, read: true } : item);
-    messageThreads = messageThreads.map((item) => ({ ...item, unread: 0 }));
-    publish({ command: "bt_message_read", handles: command.handles, read: command.read, success: true });
-  }, 10),
-  bt_list_notifications: () => later(() => publish({ command: "bt_notifications", notifications: phoneNotifications }), 10),
+  bt_solicit: () =>
+    later(
+      () =>
+        publish({
+          command: "bt_solicit_result",
+          success: true,
+          message: "Asked the iPhone to re-offer notification access.",
+        }),
+      20,
+    ),
+  bt_list_threads: () =>
+    later(() => publish({ command: "bt_threads", threads: messageThreads }), 10),
+  bt_list_messages: (command) =>
+    later(
+      () =>
+        publish({
+          command: "bt_messages",
+          thread: command.thread,
+          messages: messageHistory.filter((item) => item.thread === command.thread),
+        }),
+      10,
+    ),
+  bt_list_contacts: (command) =>
+    later(() => {
+      const query = (command.query || "").toLowerCase();
+
+      const available =
+        query && !phoneContacts.length
+          ? [{ name: "Ada", addresses: ["tel:+15550102"] }]
+          : phoneContacts;
+
+      publish({
+        command: "bt_contacts",
+        query: command.query || "",
+        contacts: available
+          .filter((item) =>
+            `${item.name} ${item.addresses.join(" ")}`.toLowerCase().includes(query),
+          )
+          .slice(0, command.limit || 5000),
+      });
+    }, 10),
+  bt_mark_read: (command) =>
+    later(() => {
+      messageHistory = messageHistory.map((item) =>
+        command.handles.includes(item.handle) ? { ...item, read: true } : item,
+      );
+      messageThreads = messageThreads.map((item) => ({ ...item, unread: 0 }));
+      publish({
+        command: "bt_message_read",
+        handles: command.handles,
+        read: command.read,
+        success: true,
+      });
+    }, 10),
+  bt_list_notifications: () =>
+    later(() => publish({ command: "bt_notifications", notifications: phoneNotifications }), 10),
   bt_list_calls: () => later(() => publish({ command: "bt_calls", calls: phoneCalls }), 10),
-  bt_call_dial: (command) => later(() => {
-    if (!command.number?.trim()) {
-      publish({ command: "bt_call_result", action: "dial", success: false, message: "Not a dialable number." });
+  bt_call_dial: (command) =>
+    later(() => {
+      if (!command.number?.trim()) {
+        publish({
+          command: "bt_call_result",
+          action: "dial",
+          success: false,
+          message: "Not a dialable number.",
+        });
 
-      return;
-    }
+        return;
+      }
 
-    phoneCalls.push({ path: `/call/${phoneCalls.length + 1}`, number: command.number,
-      state: "dialing", outgoing: true });
-    publish({ command: "bt_call_result", action: "dial", success: true });
-    publish({ command: "bt_calls", calls: phoneCalls });
-  }, 20),
-  bt_call_action: (command) => later(() => {
-    const call = phoneCalls.find((item) => item.path === command.path);
+      phoneCalls.push({
+        path: `/call/${phoneCalls.length + 1}`,
+        number: command.number,
+        state: "dialing",
+        outgoing: true,
+      });
+      publish({ command: "bt_call_result", action: "dial", success: true });
+      publish({ command: "bt_calls", calls: phoneCalls });
+    }, 20),
+  bt_call_action: (command) =>
+    later(() => {
+      const call = phoneCalls.find((item) => item.path === command.path);
 
-    const valid = command.action === "audio_here" || command.action === "audio_phone" ||
-      Boolean(call && (command.action === "hangup" || (command.action === "answer" && call.ringing)));
+      const valid =
+        command.action === "audio_here" ||
+        command.action === "audio_phone" ||
+        Boolean(
+          call && (command.action === "hangup" || (command.action === "answer" && call.ringing)),
+        );
 
-    const result = { command: "bt_call_result", action: command.action, success: valid };
+      const result = { command: "bt_call_result", action: command.action, success: valid };
 
-    if (!valid) result.message = "That call is no longer active.";
-    publish(result);
+      if (!valid) result.message = "That call is no longer active.";
+      publish(result);
 
-    if (!valid) return;
+      if (!valid) return;
 
-    if (command.action === "answer") Object.assign(call, { state: "active", ringing: false, connected: true });
+      if (command.action === "answer")
+        Object.assign(call, { state: "active", ringing: false, connected: true });
 
-    if (command.action === "hangup") phoneCalls = phoneCalls.filter((item) => item.path !== command.path);
+      if (command.action === "hangup")
+        phoneCalls = phoneCalls.filter((item) => item.path !== command.path);
 
-    if (command.action === "audio_here" || command.action === "audio_phone") {
-      durable.bt_connection_changed.calls.audio = command.action === "audio_here" ? "active" : "idle";
-      publish(durable.bt_connection_changed);
-    }
+      if (command.action === "audio_here" || command.action === "audio_phone") {
+        durable.bt_connection_changed.calls.audio =
+          command.action === "audio_here" ? "active" : "idle";
+        publish(durable.bt_connection_changed);
+      }
 
-    publish({ command: "bt_calls", calls: phoneCalls });
-  }, 20),
+      publish({ command: "bt_calls", calls: phoneCalls });
+    }, 20),
   bt_notification_action: (command) => {
-    if (command.action !== "negative" || !phoneNotifications.some((item) => item.uid === command.uid && item.negative_action)) return false;
+    if (
+      command.action !== "negative" ||
+      !phoneNotifications.some((item) => item.uid === command.uid && item.negative_action)
+    )
+      return false;
 
     later(() => {
       publish({ command: "bt_notification_action_result", uid: command.uid, success: true });
@@ -436,22 +634,39 @@ const commandHandlers = {
       publish({ command: "bt_notification_removed", uid: command.uid });
     }, 20);
   },
-  bt_send_message: (command) => later(() => {
-    const message = { command: "bt_message", handle: `sent-${messageHistory.length}`, thread: command.thread,
-      body: command.body, timestamp: Math.floor(Date.now() / 1000), outgoing: true, read: true };
+  bt_send_message: (command) =>
+    later(() => {
+      const message = {
+        command: "bt_message",
+        handle: `sent-${messageHistory.length}`,
+        thread: command.thread,
+        body: command.body,
+        timestamp: Math.floor(Date.now() / 1000),
+        outgoing: true,
+        read: true,
+      };
 
-    messageHistory.push(message);
-    messageThreads = messageThreads.map((item) => item.thread === command.thread
-      ? { ...item, preview: command.body, timestamp: message.timestamp } : item);
-    publish(message);
-    publish({ command: "bt_send_result", thread: command.thread, operation_id: command.operation_id, success: true });
-  }, 20),
-  bt_airpods_connect: (command) => later(() => {
-    airpods.connected = command.connect;
-    durable.bt_devices = { command: "bt_devices", devices: [airpods] };
-    publish({ command: "bt_airpods_connect_result", success: true, message: "" });
-    publish(durable.bt_devices);
-  }, 20),
+      messageHistory.push(message);
+      messageThreads = messageThreads.map((item) =>
+        item.thread === command.thread
+          ? { ...item, preview: command.body, timestamp: message.timestamp }
+          : item,
+      );
+      publish(message);
+      publish({
+        command: "bt_send_result",
+        thread: command.thread,
+        operation_id: command.operation_id,
+        success: true,
+      });
+    }, 20),
+  bt_airpods_connect: (command) =>
+    later(() => {
+      airpods.connected = command.connect;
+      durable.bt_devices = { command: "bt_devices", devices: [airpods] };
+      publish({ command: "bt_airpods_connect_result", success: true, message: "" });
+      publish(durable.bt_devices);
+    }, 20),
   bt_airpods_mode: (command) => {
     durable.bt_airpods.anc = command.mode;
     publish({ command: "bt_airpods_mode_result", success: true, message: "" });
@@ -469,24 +684,44 @@ const commandHandlers = {
     durable.bt_status.airpods_handoff = command.enabled;
     publish(durable.bt_status);
   },
-  bt_unpair: (command) => later(() => {
-    setPhonePaired(false);
-    publish({ command: "bt_unpair_result", operation_id: command.operation_id, success: true, status: "unpaired", message: "Forgot someone’s iPhone." });
-    publish(durable.bt_status);
-    publish(durable.bt_devices);
-    publish(durable.bt_connection_changed);
-  }, 20),
+  bt_unpair: (command) =>
+    later(() => {
+      setPhonePaired(false);
+      publish({
+        command: "bt_unpair_result",
+        operation_id: command.operation_id,
+        success: true,
+        status: "unpaired",
+        message: "Forgot someone’s iPhone.",
+      });
+      publish(durable.bt_status);
+      publish(durable.bt_devices);
+      publish(durable.bt_connection_changed);
+    }, 20),
 };
 
 function finishPairing(command) {
   if (!command.accept) {
-    publish({ command: "bt_pair_result", operation_id: command.operation_id, success: false, status: "rejected", message: "Pairing was cancelled." });
+    publish({
+      command: "bt_pair_result",
+      operation_id: command.operation_id,
+      success: false,
+      status: "rejected",
+      message: "Pairing was cancelled.",
+    });
 
     return;
   }
 
   setPhonePaired(true);
-  publish({ command: "bt_pair_result", operation_id: command.operation_id, success: true, status: "paired", message: "Paired with someone’s iPhone.", dual_bond: true });
+  publish({
+    command: "bt_pair_result",
+    operation_id: command.operation_id,
+    success: true,
+    status: "paired",
+    message: "Paired with someone’s iPhone.",
+    dual_bond: true,
+  });
   publish(durable.bt_devices);
   publish(durable.bt_connection_changed);
 }
@@ -510,11 +745,16 @@ async function readJSON(request) {
 async function waitForScenario(epoch) {
   for (let attempt = 0; attempt < 80; attempt++) {
     try {
-      const response = await fetch("http://127.0.0.1:4173/api/v1/state", { signal: AbortSignal.timeout(500) });
+      const response = await fetch("http://127.0.0.1:4173/api/v1/state", {
+        signal: AbortSignal.timeout(500),
+      });
+
       const state = await response.json();
 
       if (state.daemon_connected && state.events.state_snapshot?.test_epoch === epoch) return;
-    } catch { /* The gateway may be connecting to the fake daemon. */ }
+    } catch {
+      /* The gateway may be connecting to the fake daemon. */
+    }
 
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -555,7 +795,12 @@ const control = createServer(async (request, response) => {
       return;
     }
 
-    publish({ command: "bt_notification", uid: body.uid, title: "Secret title", body: "Secret body" });
+    publish({
+      command: "bt_notification",
+      uid: body.uid,
+      title: "Secret title",
+      body: "Secret body",
+    });
     response.writeHead(204).end();
 
     return;
@@ -564,7 +809,10 @@ const control = createServer(async (request, response) => {
   response.writeHead(404).end();
 });
 
-const build = spawnSync("go", ["build", "-o", binary, "./cmd/tether-web"], { cwd: repo, stdio: "inherit" });
+const build = spawnSync("go", ["build", "-o", binary, "./cmd/tether-web"], {
+  cwd: repo,
+  stdio: "inherit",
+});
 
 if (build.status !== 0) {
   rmSync(sandbox, { recursive: true, force: true });
@@ -585,7 +833,11 @@ const daemon = createUnixServer((socket) => {
       const line = buffer.slice(0, end);
       buffer = buffer.slice(end + 1);
 
-      try { handleCommand(JSON.parse(line)); } catch (error) { console.error("bad daemon command", error); }
+      try {
+        handleCommand(JSON.parse(line));
+      } catch (error) {
+        console.error("bad daemon command", error);
+      }
 
       end = buffer.indexOf("\n");
     }
@@ -597,7 +849,10 @@ daemon.listen(socketPath);
 
 control.listen(4174, "127.0.0.1");
 
-const gateway = spawn(binary, [], { env: { ...process.env, TETHER_WEB_LISTEN: "127.0.0.1:4173", TETHER_SOCKET_PATH: socketPath }, stdio: "inherit" });
+const gateway = spawn(binary, [], {
+  env: { ...process.env, TETHER_WEB_LISTEN: "127.0.0.1:4173", TETHER_SOCKET_PATH: socketPath },
+  stdio: "inherit",
+});
 
 let stopping = false;
 
@@ -607,7 +862,10 @@ function shutdown() {
   gateway.kill("SIGTERM");
   control.close();
   daemon.close();
-  setTimeout(() => { rmSync(sandbox, { recursive: true, force: true }); process.exit(0); }, 1500).unref();
+  setTimeout(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+    process.exit(0);
+  }, 1500).unref();
 }
 
 gateway.on("exit", (code) => {

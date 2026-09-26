@@ -150,7 +150,13 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
 
       return {
         ...state,
-        pairing: { ...state.pairing, phase: "error", code: undefined, detail: undefined, message: action.message },
+        pairing: {
+          ...state.pairing,
+          phase: "error",
+          code: undefined,
+          detail: undefined,
+          message: action.message,
+        },
       };
     case "scan-failed":
       return { ...state, scanning: false, scanMessage: action.message };
@@ -167,13 +173,20 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         airpodsMessage: undefined,
       };
     case "airpods-connect-timeout":
-      if (state.airpodsConnectingAddress !== action.address || state.airpodsConnectingToken !== action.token) return state;
+      if (
+        state.airpodsConnectingAddress !== action.address ||
+        state.airpodsConnectingToken !== action.token
+      )
+        return state;
 
       return {
         ...state,
         airpodsConnectingAddress: undefined,
         airpodsConnectingToken: undefined,
-        airpodsMessage: { address: action.address, text: "No answer from tetherd. The AirPods connection may still have changed." },
+        airpodsMessage: {
+          address: action.address,
+          text: "No answer from tetherd. The AirPods connection may still have changed.",
+        },
       };
     case "airpods-command-failed":
       return {
@@ -205,10 +218,16 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         ...state,
         bluetoothEnabledTarget: undefined,
         bluetoothEnabledToken: undefined,
-        bluetoothMessage: "No updated Bluetooth status arrived from tetherd. Check the connection before trying again.",
+        bluetoothMessage:
+          "No updated Bluetooth status arrived from tetherd. " +
+          "Check the connection before trying again.",
       };
     case "bluetooth-solicit-started":
-      return { ...state, bluetoothSolicitToken: action.token, bluetoothMessage: "Asking the iPhone to show its permissions…" };
+      return {
+        ...state,
+        bluetoothSolicitToken: action.token,
+        bluetoothMessage: "Asking the iPhone to show its permissions…",
+      };
     case "bluetooth-solicit-failed":
       if (state.bluetoothSolicitToken !== action.token) return state;
 
@@ -219,19 +238,30 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
       return {
         ...state,
         bluetoothSolicitToken: undefined,
-        bluetoothMessage: "No permission result arrived from tetherd. Check the iPhone, then try again.",
+        bluetoothMessage:
+          "No permission result arrived from tetherd. Check the iPhone, then try again.",
       };
     case "peer-discovery-started":
       return {
         ...state,
-        wifi: { ...state.wifi, discovering: true, discoveryToken: action.token, message: "Looking for nearby devices…" },
+        wifi: {
+          ...state.wifi,
+          discovering: true,
+          discoveryToken: action.token,
+          message: "Looking for nearby devices…",
+        },
       };
     case "peer-discovery-failed":
       if (state.wifi.discoveryToken !== action.token) return state;
 
       return {
         ...state,
-        wifi: { ...state.wifi, discovering: false, discoveryToken: undefined, message: action.message },
+        wifi: {
+          ...state.wifi,
+          discovering: false,
+          discoveryToken: undefined,
+          message: action.message,
+        },
       };
     case "peer-discovery-timeout":
       if (state.wifi.discoveryToken !== action.token) return state;
@@ -256,14 +286,11 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
         },
       };
     case "peer-pair-failed":
-      if (state.wifi.pairingFingerprint !== action.fingerprint || state.wifi.pairingToken !== action.token) return state;
-
-      return {
-        ...state,
-        wifi: { ...state.wifi, pairingFingerprint: undefined, pairingToken: undefined, message: action.message },
-      };
-    case "peer-pair-timeout":
-      if (state.wifi.pairingFingerprint !== action.fingerprint || state.wifi.pairingToken !== action.token) return state;
+      if (
+        state.wifi.pairingFingerprint !== action.fingerprint ||
+        state.wifi.pairingToken !== action.token
+      )
+        return state;
 
       return {
         ...state,
@@ -271,7 +298,24 @@ export function reduceDevicesState(state: DevicesState, action: DevicesAction): 
           ...state.wifi,
           pairingFingerprint: undefined,
           pairingToken: undefined,
-          message: "No pairing result arrived from tetherd. Check the other device, then try again.",
+          message: action.message,
+        },
+      };
+    case "peer-pair-timeout":
+      if (
+        state.wifi.pairingFingerprint !== action.fingerprint ||
+        state.wifi.pairingToken !== action.token
+      )
+        return state;
+
+      return {
+        ...state,
+        wifi: {
+          ...state.wifi,
+          pairingFingerprint: undefined,
+          pairingToken: undefined,
+          message:
+            "No pairing result arrived from tetherd. Check the other device, then try again.",
         },
       };
     case "peer-command-failed":
@@ -288,13 +332,25 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
     case "discovery_result":
       return handleDiscoveryResult(state, event);
     case "client_connected":
-      return { ...state, wifi: { ...state.wifi, peers: updatePeerConnection(state.wifi.peers, event, true) } };
+      return {
+        ...state,
+        wifi: { ...state.wifi, peers: updatePeerConnection(state.wifi.peers, event, true) },
+      };
     case "client_disconnected":
-      return { ...state, wifi: { ...state.wifi, peers: updatePeerConnection(state.wifi.peers, event, false) } };
+      return {
+        ...state,
+        wifi: { ...state.wifi, peers: updatePeerConnection(state.wifi.peers, event, false) },
+      };
     case "pair_request_received":
-      return { ...state, wifi: { ...state.wifi, peers: upsertPendingPeer(state.wifi.peers, event) } };
+      return {
+        ...state,
+        wifi: { ...state.wifi, peers: upsertPendingPeer(state.wifi.peers, event) },
+      };
     case "untrusted_client_connected":
-      return { ...state, wifi: { ...state.wifi, peers: upsertPendingPeer(state.wifi.peers, event, true) } };
+      return {
+        ...state,
+        wifi: { ...state.wifi, peers: upsertPendingPeer(state.wifi.peers, event, true) },
+      };
     case "pair_outbound_pending":
       return handlePairOutboundPending(state, event);
     case "pair_rejected":
@@ -374,30 +430,64 @@ export function reduceDevicesEvent(state: DevicesState, event: DaemonEvent): Dev
   }
 }
 
-function handleDiscoveryResult(state: DevicesState, event: Extract<DaemonEvent, { command: "discovery_result" }>): DevicesState {
-  const message = event.devices.length === 0
-    ? "No nearby Wi-Fi devices found."
-    : `Found ${event.devices.length} nearby device${event.devices.length === 1 ? "" : "s"}.`;
+function handleDiscoveryResult(
+  state: DevicesState,
+  event: Extract<DaemonEvent, { command: "discovery_result" }>,
+): DevicesState {
+  const message =
+    event.devices.length === 0
+      ? "No nearby Wi-Fi devices found."
+      : `Found ${event.devices.length} nearby device${event.devices.length === 1 ? "" : "s"}.`;
 
   return {
     ...state,
-    wifi: { ...state.wifi, peers: mergeDiscoveredPeers(state.wifi.peers, event.devices), discovering: false, discoveryToken: undefined, message },
+    wifi: {
+      ...state.wifi,
+      peers: mergeDiscoveredPeers(state.wifi.peers, event.devices),
+      discovering: false,
+      discoveryToken: undefined,
+      message,
+    },
   };
 }
 
-function handlePairOutboundPending(state: DevicesState, event: Extract<DaemonEvent, { command: "pair_outbound_pending" }>): DevicesState {
-  if (!state.wifi.pairingFingerprint || event.fingerprint !== state.wifi.pairingFingerprint) return state;
+function handlePairOutboundPending(
+  state: DevicesState,
+  event: Extract<DaemonEvent, { command: "pair_outbound_pending" }>,
+): DevicesState {
+  if (!state.wifi.pairingFingerprint || event.fingerprint !== state.wifi.pairingFingerprint)
+    return state;
 
-  return { ...state, wifi: { ...state.wifi, message: `Waiting for approval on ${event.device_name || "the other device"}…` } };
+  return {
+    ...state,
+    wifi: {
+      ...state.wifi,
+      message: `Waiting for approval on ${event.device_name || "the other device"}…`,
+    },
+  };
 }
 
-function handlePairRejected(state: DevicesState, event: Extract<DaemonEvent, { command: "pair_rejected" }>): DevicesState {
+function handlePairRejected(
+  state: DevicesState,
+  event: Extract<DaemonEvent, { command: "pair_rejected" }>,
+): DevicesState {
   if (!belongsToActivePeerPair(state.wifi, event)) return state;
 
-  return { ...state, wifi: { ...state.wifi, pairingFingerprint: undefined, pairingToken: undefined, message: peerRejectionMessage(event.reason) } };
+  return {
+    ...state,
+    wifi: {
+      ...state.wifi,
+      pairingFingerprint: undefined,
+      pairingToken: undefined,
+      message: peerRejectionMessage(event.reason),
+    },
+  };
 }
 
-function handlePairAccepted(state: DevicesState, event: Extract<DaemonEvent, { command: "pair_accepted" }>): DevicesState {
+function handlePairAccepted(
+  state: DevicesState,
+  event: Extract<DaemonEvent, { command: "pair_accepted" }>,
+): DevicesState {
   const accepted = state.wifi.pairingFingerprint === event.fingerprint;
 
   return {
@@ -412,7 +502,10 @@ function handlePairAccepted(state: DevicesState, event: Extract<DaemonEvent, { c
   };
 }
 
-function handleForgetDeviceResult(state: DevicesState, event: Extract<DaemonEvent, { command: "forget_device_result" }>): DevicesState {
+function handleForgetDeviceResult(
+  state: DevicesState,
+  event: Extract<DaemonEvent, { command: "forget_device_result" }>,
+): DevicesState {
   return {
     ...state,
     wifi: {
@@ -423,7 +516,10 @@ function handleForgetDeviceResult(state: DevicesState, event: Extract<DaemonEven
   };
 }
 
-function handleBluetoothStatus(state: DevicesState, event: Extract<DaemonEvent, { command: "bt_status" }>): DevicesState {
+function handleBluetoothStatus(
+  state: DevicesState,
+  event: Extract<DaemonEvent, { command: "bt_status" }>,
+): DevicesState {
   const completed = state.bluetoothEnabledToken && event.enabled === state.bluetoothEnabledTarget;
 
   return {
@@ -431,36 +527,60 @@ function handleBluetoothStatus(state: DevicesState, event: Extract<DaemonEvent, 
     bluetooth: event,
     bluetoothEnabledTarget: completed ? undefined : state.bluetoothEnabledTarget,
     bluetoothEnabledToken: completed ? undefined : state.bluetoothEnabledToken,
-    bluetoothMessage: completed ? "Bluetooth connection preference updated." : state.bluetoothMessage,
+    bluetoothMessage: completed
+      ? "Bluetooth connection preference updated."
+      : state.bluetoothMessage,
   };
 }
 
-function handleBluetoothDevices(state: DevicesState, event: Extract<DaemonEvent, { command: "bt_devices" }>): DevicesState {
+function handleBluetoothDevices(
+  state: DevicesState,
+  event: Extract<DaemonEvent, { command: "bt_devices" }>,
+): DevicesState {
   const configuredAddress = state.bluetooth?.device_address?.toUpperCase();
-  const visible = event.devices.filter((device) => isVisibleBluetoothDevice(device, configuredAddress));
+
+  const visible = event.devices.filter((device) =>
+    isVisibleBluetoothDevice(device, configuredAddress),
+  );
 
   return { ...state, devices: mergeDevices(state.devices.filter(isAnonymousCandidate), visible) };
 }
 
 function isVisibleBluetoothDevice(device: BluetoothDevice, configuredAddress?: string): boolean {
-  return device.iphone || device.apple_nearby || device.airpods ||
-    (configuredAddress !== undefined && device.address.toUpperCase() === configuredAddress);
+  return (
+    device.iphone ||
+    device.apple_nearby ||
+    device.airpods ||
+    (configuredAddress !== undefined && device.address.toUpperCase() === configuredAddress)
+  );
 }
 
-function handleAirPodsConnectionResult(state: DevicesState, event: AirPodsResultEvent): DevicesState {
-  const airpodsMessage = event.success ? undefined : {
-    address: state.airpodsConnectingAddress,
-    text: event.message || "Could not change the AirPods connection.",
-  };
+function handleAirPodsConnectionResult(
+  state: DevicesState,
+  event: AirPodsResultEvent,
+): DevicesState {
+  const airpodsMessage = event.success
+    ? undefined
+    : {
+        address: state.airpodsConnectingAddress,
+        text: event.message || "Could not change the AirPods connection.",
+      };
 
-  return { ...state, airpodsConnectingAddress: undefined, airpodsConnectingToken: undefined, airpodsMessage };
+  return {
+    ...state,
+    airpodsConnectingAddress: undefined,
+    airpodsConnectingToken: undefined,
+    airpodsMessage,
+  };
 }
 
 function handleAirPodsModeResult(state: DevicesState, event: AirPodsResultEvent): DevicesState {
-  const airpodsMessage = event.success ? undefined : {
-    address: state.airpods?.address,
-    text: event.message || "Could not change the listening mode.",
-  };
+  const airpodsMessage = event.success
+    ? undefined
+    : {
+        address: state.airpods?.address,
+        text: event.message || "Could not change the listening mode.",
+      };
 
   return { ...state, airpodsMessage };
 }
@@ -473,16 +593,23 @@ function handleDaemonDisconnected(state: DevicesState): DevicesState {
   return {
     ...state,
     scanning: false,
-    scanMessage: state.scanning ? "Bluetooth scan stopped while Tether reconnects." : state.scanMessage,
+    scanMessage: state.scanning
+      ? "Bluetooth scan stopped while Tether reconnects."
+      : state.scanMessage,
     airpodsConnectingAddress: undefined,
     airpodsConnectingToken: undefined,
     airpodsMessage: state.airpodsConnectingAddress
-      ? { address: state.airpodsConnectingAddress, text: "Connection to tetherd was lost. Try again after it reconnects." }
+      ? {
+          address: state.airpodsConnectingAddress,
+          text: "Connection to tetherd was lost. Try again after it reconnects.",
+        }
       : state.airpodsMessage,
     bluetoothEnabledTarget: undefined,
     bluetoothEnabledToken: undefined,
     bluetoothSolicitToken: undefined,
-    bluetoothMessage: bluetoothBusy ? "Bluetooth operation stopped while Tether reconnects." : state.bluetoothMessage,
+    bluetoothMessage: bluetoothBusy
+      ? "Bluetooth operation stopped while Tether reconnects."
+      : state.bluetoothMessage,
     wifi: {
       ...state.wifi,
       discovering: false,
@@ -526,7 +653,9 @@ function isPairConfirmationActive(pairing: PairingState, operationId: string): b
 function belongsToActivePairing(pairing: PairingState, operationId?: string): boolean {
   const active = pairing.phase === "pairing" || pairing.phase === "confirming";
 
-  return Boolean(active && operationId && pairing.operationId && operationId === pairing.operationId);
+  return Boolean(
+    active && operationId && pairing.operationId && operationId === pairing.operationId,
+  );
 }
 
 function wifiFromSnapshot(event: StateSnapshotEvent): WifiState {
@@ -546,18 +675,26 @@ function wifiFromSnapshot(event: StateSnapshotEvent): WifiState {
   };
 }
 
-function addPairedPeers(peers: Map<string, WifiPeer>, pairedPeers?: StateSnapshotEvent["paired_devices"]): void {
-  pairedPeers?.forEach((peer) => peers.set(peer.fingerprint, {
-    fingerprint: peer.fingerprint,
-    name: peer.device_name || "Unknown Device",
-    port: 5134,
-    paired: true,
-    connected: false,
-    pending: false,
-  }));
+function addPairedPeers(
+  peers: Map<string, WifiPeer>,
+  pairedPeers?: StateSnapshotEvent["paired_devices"],
+): void {
+  pairedPeers?.forEach((peer) =>
+    peers.set(peer.fingerprint, {
+      fingerprint: peer.fingerprint,
+      name: peer.device_name || "Unknown Device",
+      port: 5134,
+      paired: true,
+      connected: false,
+      pending: false,
+    }),
+  );
 }
 
-function addConnectedPeers(peers: Map<string, WifiPeer>, clients?: StateSnapshotEvent["connected_clients"]): void {
+function addConnectedPeers(
+  peers: Map<string, WifiPeer>,
+  clients?: StateSnapshotEvent["connected_clients"],
+): void {
   clients?.forEach((client) => {
     const existing = peers.get(client.fingerprint);
     peers.set(client.fingerprint, {
@@ -572,7 +709,10 @@ function addConnectedPeers(peers: Map<string, WifiPeer>, clients?: StateSnapshot
   });
 }
 
-function addPendingPeers(peers: Map<string, WifiPeer>, pendingPeers?: StateSnapshotEvent["pending_pairs"]): void {
+function addPendingPeers(
+  peers: Map<string, WifiPeer>,
+  pendingPeers?: StateSnapshotEvent["pending_pairs"],
+): void {
   pendingPeers?.forEach((pending) => {
     const existing = peers.get(pending.fingerprint);
     peers.set(pending.fingerprint, {
@@ -653,9 +793,13 @@ function upsertPendingPeer(
 }
 
 function acceptPeer(peers: WifiPeer[], fingerprint?: string, connected = false): WifiPeer[] {
-  return sortPeers(peers.map((peer) => peer.fingerprint === fingerprint
-    ? { ...peer, paired: true, pending: false, connected: connected || peer.connected }
-    : peer));
+  return sortPeers(
+    peers.map((peer) =>
+      peer.fingerprint === fingerprint
+        ? { ...peer, paired: true, pending: false, connected: connected || peer.connected }
+        : peer,
+    ),
+  );
 }
 
 function forgetPeer(peers: WifiPeer[], fingerprint?: string): WifiPeer[] {
@@ -663,10 +807,12 @@ function forgetPeer(peers: WifiPeer[], fingerprint?: string): WifiPeer[] {
 }
 
 function sortPeers(peers: WifiPeer[]): WifiPeer[] {
-  return [...peers].sort((left, right) =>
-    Number(right.connected) - Number(left.connected) ||
-    Number(right.paired) - Number(left.paired) ||
-    left.name.localeCompare(right.name));
+  return [...peers].sort(
+    (left, right) =>
+      Number(right.connected) - Number(left.connected) ||
+      Number(right.paired) - Number(left.paired) ||
+      left.name.localeCompare(right.name),
+  );
 }
 
 function belongsToActivePeerPair(
@@ -683,10 +829,15 @@ function belongsToActivePeerPair(
 
 function peerRejectionMessage(reason?: string): string {
   switch (reason) {
-    case "unreachable": return "Could not reach that device. Check that TCP 5134 is allowed through its firewall.";
-    case "refused": return "That device refused the connection. Is Tether running on it?";
-    case "unresolved": return "That device address could not be resolved.";
-    case "failed": return "Could not connect to that device.";
-    default: return "Pair request was rejected.";
+    case "unreachable":
+      return "Could not reach that device. Check that TCP 5134 is allowed through its firewall.";
+    case "refused":
+      return "That device refused the connection. Is Tether running on it?";
+    case "unresolved":
+      return "That device address could not be resolved.";
+    case "failed":
+      return "Could not connect to that device.";
+    default:
+      return "Pair request was rejected.";
   }
 }

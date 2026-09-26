@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DaemonCommandRejectedError, sendDaemonCommand } from "../../daemon/DaemonClient";
 import type { DaemonEvent } from "../../protocol";
 
@@ -10,13 +10,23 @@ export const maxUploadBytes = 256 * 1024 * 1024;
 
 function cancelStaging(operationId: string): void {
   // Cancellation is best-effort: tetherd may already own the send.
-  void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId }).catch(() => {});
+  void sendDaemonCommand({ command: "file_upload_cancel", operation_id: operationId }).catch(
+    () => {},
+  );
 }
 
 function batchSummary(sent: number, total: number, failed: number, skipped: number): string {
-  const result = total ? `Sent ${sent} of ${total} ${total === 1 ? "file" : "files"}.` : "No files to send.";
+  const result = total
+    ? `Sent ${sent} of ${total} ${total === 1 ? "file" : "files"}.`
+    : "No files to send.";
 
-  return `${result}${failed ? ` ${failed} failed.` : ""}${skipped ? ` Skipped ${skipped} non-file ${skipped === 1 ? "item" : "items"}.` : ""}`;
+  const failedSummary = failed ? ` ${failed} failed.` : "";
+
+  const skippedSummary = skipped
+    ? ` Skipped ${skipped} non-file ${skipped === 1 ? "item" : "items"}.`
+    : "";
+
+  return `${result}${failedSummary}${skippedSummary}`;
 }
 
 type TransferStatus = "idle" | "uploading" | "sending" | "complete" | "cancelled" | "error";
@@ -60,8 +70,27 @@ const idleTransfer: FileTransferState = {
 
 export function useFileTransfer(): FileTransferActions {
   const [state, setState] = useState<FileTransferState>(idleTransfer);
-  const [batch, setBatch] = useState<FileBatchState>({ total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false });
-  const batchRef = useRef<FileBatchState>({ total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false });
+
+  const [batch, setBatch] = useState<FileBatchState>({
+    total: 0,
+    completed: 0,
+    sent: 0,
+    failed: 0,
+    skipped: 0,
+    pending: 0,
+    active: false,
+  });
+
+  const batchRef = useRef<FileBatchState>({
+    total: 0,
+    completed: 0,
+    sent: 0,
+    failed: 0,
+    skipped: 0,
+    pending: 0,
+    active: false,
+  });
+
   const queueRef = useRef<File[]>([]);
   const startNextRef = useRef<() => void>(() => {});
   const batchOperationRef = useRef<string | undefined>(undefined);
@@ -81,9 +110,17 @@ export function useFileTransfer(): FileTransferActions {
     const failed = current.failed + Number(!success);
     const active = !batchStoppedRef.current && queueRef.current.length > 0;
     updateBatch({
-      ...current, completed, sent, failed, active,
+      ...current,
+      completed,
+      sent,
+      failed,
+      active,
       pending: active ? queueRef.current.length : 0,
-      message: batchStoppedRef.current ? current.message : active ? undefined : batchSummary(sent, current.total, failed, current.skipped),
+      message: batchStoppedRef.current
+        ? current.message
+        : active
+          ? undefined
+          : batchSummary(sent, current.total, failed, current.skipped),
     });
 
     if (active) queueMicrotask(() => startNextRef.current());
@@ -99,7 +136,12 @@ export function useFileTransfer(): FileTransferActions {
     batchStoppedRef.current = true;
     const dropped = queueRef.current.length;
     queueRef.current = [];
-    updateBatch({ ...batchRef.current, active: false, pending: 0, message: `${message}${dropped ? ` ${dropped} queued files dropped.` : ""}` });
+    updateBatch({
+      ...batchRef.current,
+      active: false,
+      pending: 0,
+      message: `${message}${dropped ? ` ${dropped} queued files dropped.` : ""}`,
+    });
   };
 
   const fail = useCallback((operationId: string, message: string) => {
@@ -110,32 +152,43 @@ export function useFileTransfer(): FileTransferActions {
     sendTimeout.current = undefined;
 
     if (operationRef.current === operationId) operationRef.current = undefined;
-    setState((current) => current.operationId === operationId
-      ? { ...current, status: "error", message }
-      : current);
+    setState((current) =>
+      current.operationId === operationId ? { ...current, status: "error", message } : current,
+    );
     finishItem(operationId, false);
   }, []);
 
-  const handleEvent = useCallback((event: DaemonEvent) => {
-    if (event.command !== "file_send_complete" || event.operation_id !== operationRef.current) return;
+  const handleEvent = useCallback(
+    (event: DaemonEvent) => {
+      if (event.command !== "file_send_complete" || event.operation_id !== operationRef.current)
+        return;
 
-    if (!event.success) {
-      fail(event.operation_id, event.message || "The file could not be sent.");
+      if (!event.success) {
+        fail(event.operation_id, event.message || "The file could not be sent.");
 
-      return;
-    }
+        return;
+      }
 
-    stoppedOperations.current.delete(event.operation_id);
-    cancellableOperations.current.delete(event.operation_id);
+      stoppedOperations.current.delete(event.operation_id);
+      cancellableOperations.current.delete(event.operation_id);
 
-    if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
-    sendTimeout.current = undefined;
-    operationRef.current = undefined;
-    setState((current) => current.operationId === event.operation_id
-      ? { ...current, sentBytes: current.totalBytes, status: "complete", message: event.message }
-      : current);
-    finishItem(event.operation_id, true);
-  }, [fail]);
+      if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
+      sendTimeout.current = undefined;
+      operationRef.current = undefined;
+      setState((current) =>
+        current.operationId === event.operation_id
+          ? {
+              ...current,
+              sentBytes: current.totalBytes,
+              status: "complete",
+              message: event.message,
+            }
+          : current,
+      );
+      finishItem(event.operation_id, true);
+    },
+    [fail],
+  );
 
   const cancel = useCallback(() => {
     const operationId = operationRef.current;
@@ -144,117 +197,169 @@ export function useFileTransfer(): FileTransferActions {
     stoppedOperations.current.add(operationId);
     cancellableOperations.current.delete(operationId);
     operationRef.current = undefined;
-    setState((current) => current.operationId === operationId
-      ? { ...current, status: "cancelled", message: "File transfer cancelled." }
-      : current);
+    setState((current) =>
+      current.operationId === operationId
+        ? { ...current, status: "cancelled", message: "File transfer cancelled." }
+        : current,
+    );
     cancelStaging(operationId);
     finishItem(operationId, false);
   }, []);
 
-  const sendFile = useCallback(async (file: File) => {
-    if (operationRef.current) return;
+  const sendFile = useCallback(
+    async (file: File) => {
+      if (operationRef.current) return;
 
-    if (file.size > maxUploadBytes) {
-      setState({
-        filename: file.name,
-        sentBytes: 0,
-        totalBytes: file.size,
-        status: "error",
-        message: "Choose a file no larger than 256 MiB.",
-      });
-
-      return;
-    }
-
-    const operationId = crypto.randomUUID();
-
-    if (batchRef.current.active) batchOperationRef.current = operationId;
-    operationRef.current = operationId;
-    cancellableOperations.current.add(operationId);
-    stoppedOperations.current.delete(operationId);
-    setState({ operationId, filename: file.name, sentBytes: 0, totalBytes: file.size, status: "uploading" });
-
-    try {
-      await sendDaemonCommand({
-        command: "file_upload_start",
-        operation_id: operationId,
-        filename: file.name,
-        size: file.size,
-      });
-
-      for (let offset = 0, chunkIndex = 0; offset < file.size; offset += chunkBytes, chunkIndex += 1) {
-        if (stoppedOperations.current.has(operationId)) return;
-        const end = Math.min(offset + chunkBytes, file.size);
-        const data = encodeBase64(await readBlob(file.slice(offset, end)));
-        await sendDaemonCommand({
-          command: "file_upload_chunk",
-          operation_id: operationId,
-          chunk_index: chunkIndex,
-          data,
+      if (file.size > maxUploadBytes) {
+        setState({
+          filename: file.name,
+          sentBytes: 0,
+          totalBytes: file.size,
+          status: "error",
+          message: "Choose a file no larger than 256 MiB.",
         });
-        setState((current) => current.operationId === operationId
-          ? { ...current, sentBytes: end }
-          : current);
-      }
-
-      if (stoppedOperations.current.has(operationId)) return;
-      cancellableOperations.current.delete(operationId);
-      setState((current) => current.operationId === operationId
-        ? { ...current, status: "sending", message: "Waiting for the other device…" }
-        : current);
-      sendTimeout.current = window.setTimeout(() => {
-        if (operationRef.current !== operationId) return;
-        stopBatch("The send result timed out; the current file may still be in progress.");
-        setState((current) => current.operationId === operationId
-          ? { ...current, message: "Timed out waiting for the file-send result. The send may still be in progress." }
-          : current);
-      }, sendResultTimeoutMs);
-      await sendDaemonCommand({ command: "file_upload_finish", operation_id: operationId });
-    } catch (error) {
-      if (stoppedOperations.current.has(operationId) || operationRef.current !== operationId) return;
-
-      if (!cancellableOperations.current.has(operationId) && !(error instanceof DaemonCommandRejectedError)) {
-        setState((current) => current.operationId === operationId
-          ? { ...current, message: "The finish request was interrupted; waiting for tetherd’s result…" }
-          : current);
 
         return;
       }
 
-      const message = error instanceof Error ? error.message : "The file upload failed.";
-      fail(operationId, message);
-      cancelStaging(operationId);
-    }
-  }, [fail]);
+      const operationId = crypto.randomUUID();
 
-  startNextRef.current = () => {
-    if (!batchRef.current.active || batchStoppedRef.current || operationRef.current) return;
-    const file = queueRef.current.shift();
+      if (batchRef.current.active) batchOperationRef.current = operationId;
+      operationRef.current = operationId;
+      cancellableOperations.current.add(operationId);
+      stoppedOperations.current.delete(operationId);
+      setState({
+        operationId,
+        filename: file.name,
+        sentBytes: 0,
+        totalBytes: file.size,
+        status: "uploading",
+      });
 
-    if (!file) return;
-    updateBatch({ ...batchRef.current, pending: queueRef.current.length });
+      try {
+        await sendDaemonCommand({
+          command: "file_upload_start",
+          operation_id: operationId,
+          filename: file.name,
+          size: file.size,
+        });
 
-    if (file.size > maxUploadBytes) {
-      setState({ filename: file.name, sentBytes: 0, totalBytes: file.size, status: "error", message: "Choose a file no larger than 256 MiB." });
-      const current = batchRef.current;
-      const failed = current.failed + 1;
-      const completed = current.completed + 1;
-      const active = queueRef.current.length > 0;
-      updateBatch({ ...current, failed, completed, active, message: active ? undefined : batchSummary(current.sent, current.total, failed, current.skipped) });
+        for (
+          let offset = 0, chunkIndex = 0;
+          offset < file.size;
+          offset += chunkBytes, chunkIndex += 1
+        ) {
+          if (stoppedOperations.current.has(operationId)) return;
+          const end = Math.min(offset + chunkBytes, file.size);
+          const data = encodeBase64(await readBlob(file.slice(offset, end)));
+          await sendDaemonCommand({
+            command: "file_upload_chunk",
+            operation_id: operationId,
+            chunk_index: chunkIndex,
+            data,
+          });
+          setState((current) =>
+            current.operationId === operationId ? { ...current, sentBytes: end } : current,
+          );
+        }
 
-      if (active) queueMicrotask(() => startNextRef.current());
+        if (stoppedOperations.current.has(operationId)) return;
+        cancellableOperations.current.delete(operationId);
+        setState((current) =>
+          current.operationId === operationId
+            ? { ...current, status: "sending", message: "Waiting for the other device…" }
+            : current,
+        );
+        sendTimeout.current = window.setTimeout(() => {
+          if (operationRef.current !== operationId) return;
+          stopBatch("The send result timed out; the current file may still be in progress.");
+          setState((current) =>
+            current.operationId === operationId
+              ? {
+                  ...current,
+                  message:
+                    "Timed out waiting for the file-send result. " +
+                    "The send may still be in progress.",
+                }
+              : current,
+          );
+        }, sendResultTimeoutMs);
+        await sendDaemonCommand({ command: "file_upload_finish", operation_id: operationId });
+      } catch (error) {
+        if (stoppedOperations.current.has(operationId) || operationRef.current !== operationId)
+          return;
 
-      return;
-    }
+        if (
+          !cancellableOperations.current.has(operationId) &&
+          !(error instanceof DaemonCommandRejectedError)
+        ) {
+          setState((current) =>
+            current.operationId === operationId
+              ? {
+                  ...current,
+                  message: "The finish request was interrupted; waiting for tetherd’s result…",
+                }
+              : current,
+          );
 
-    void sendFile(file);
-  };
+          return;
+        }
+
+        const message = error instanceof Error ? error.message : "The file upload failed.";
+        fail(operationId, message);
+        cancelStaging(operationId);
+      }
+    },
+    [fail],
+  );
+
+  useLayoutEffect(() => {
+    startNextRef.current = () => {
+      if (!batchRef.current.active || batchStoppedRef.current || operationRef.current) return;
+      const file = queueRef.current.shift();
+
+      if (!file) return;
+      updateBatch({ ...batchRef.current, pending: queueRef.current.length });
+
+      if (file.size > maxUploadBytes) {
+        setState({
+          filename: file.name,
+          sentBytes: 0,
+          totalBytes: file.size,
+          status: "error",
+          message: "Choose a file no larger than 256 MiB.",
+        });
+        const current = batchRef.current;
+        const failed = current.failed + 1;
+        const completed = current.completed + 1;
+        const active = queueRef.current.length > 0;
+        updateBatch({
+          ...current,
+          failed,
+          completed,
+          active,
+          message: active
+            ? undefined
+            : batchSummary(current.sent, current.total, failed, current.skipped),
+        });
+
+        if (active) queueMicrotask(() => startNextRef.current());
+
+        return;
+      }
+
+      void sendFile(file);
+    };
+  });
 
   const sendFiles = (files: File[], skipped = 0) => {
     if (!files.length && !skipped) return;
 
     if (operationRef.current && !batchRef.current.active) {
-      setState((current) => ({ ...current, message: "Wait for the current send to finish before selecting more files." }));
+      setState((current) => ({
+        ...current,
+        message: "Wait for the current send to finish before selecting more files.",
+      }));
 
       return;
     }
@@ -262,20 +367,41 @@ export function useFileTransfer(): FileTransferActions {
     if (!batchRef.current.active) {
       batchStoppedRef.current = false;
       queueRef.current = [];
-      updateBatch({ total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: true });
+      updateBatch({
+        total: 0,
+        completed: 0,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+        pending: 0,
+        active: true,
+      });
     }
 
     queueRef.current.push(...files);
     const current = batchRef.current;
-    const active = current.active && (files.length > 0 || operationRef.current !== undefined || queueRef.current.length > 0);
-    updateBatch({ ...current, total: current.total + files.length, skipped: current.skipped + skipped, pending: queueRef.current.length, active,
-      message: active ? undefined : batchSummary(current.sent, current.total, current.failed, current.skipped + skipped) });
+
+    const active =
+      current.active &&
+      (files.length > 0 || operationRef.current !== undefined || queueRef.current.length > 0);
+
+    updateBatch({
+      ...current,
+      total: current.total + files.length,
+      skipped: current.skipped + skipped,
+      pending: queueRef.current.length,
+      active,
+      message: active
+        ? undefined
+        : batchSummary(current.sent, current.total, current.failed, current.skipped + skipped),
+    });
     startNextRef.current();
   };
 
   const cancelBatch = () => {
     stopBatch("Batch cancelled.");
-    cancel(); // Once accepted by tetherd, a send cannot be undone; only the remaining queue is dropped.
+    // Once accepted by tetherd, a send cannot be undone; only the remaining queue is dropped.
+    cancel();
   };
 
   const handleDisconnect = useCallback(() => {
@@ -285,9 +411,11 @@ export function useFileTransfer(): FileTransferActions {
     if (!operationId) return;
 
     if (!cancellableOperations.current.has(operationId)) {
-      setState((current) => current.operationId === operationId
-        ? { ...current, message: "Reconnecting while the other device receives the file…" }
-        : current);
+      setState((current) =>
+        current.operationId === operationId
+          ? { ...current, message: "Reconnecting while the other device receives the file…" }
+          : current,
+      );
 
       return;
     }
@@ -295,28 +423,33 @@ export function useFileTransfer(): FileTransferActions {
     stoppedOperations.current.add(operationId);
     cancellableOperations.current.delete(operationId);
     operationRef.current = undefined;
-    setState((current) => current.operationId === operationId
-      ? { ...current, status: "error", message: "The connection to tetherd was lost." }
-      : current);
+    setState((current) =>
+      current.operationId === operationId
+        ? { ...current, status: "error", message: "The connection to tetherd was lost." }
+        : current,
+    );
     cancelStaging(operationId);
     finishItem(operationId, false);
   }, []);
 
-  useEffect(() => () => {
-    const operationId = operationRef.current;
+  useEffect(
+    () => () => {
+      const operationId = operationRef.current;
 
-    if (operationId && cancellableOperations.current.has(operationId)) {
-      stoppedOperations.current.add(operationId);
-      cancellableOperations.current.delete(operationId);
-      operationRef.current = undefined;
-      cancelStaging(operationId);
-    }
+      if (operationId && cancellableOperations.current.has(operationId)) {
+        stoppedOperations.current.add(operationId);
+        cancellableOperations.current.delete(operationId);
+        operationRef.current = undefined;
+        cancelStaging(operationId);
+      }
 
-    queueRef.current = [];
-    batchStoppedRef.current = true;
+      queueRef.current = [];
+      batchStoppedRef.current = true;
 
-    if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
-  }, []);
+      if (sendTimeout.current !== undefined) window.clearTimeout(sendTimeout.current);
+    },
+    [],
+  );
 
   return { state, batch, sendFile, sendFiles, cancel, cancelBatch, handleEvent, handleDisconnect };
 }

@@ -29,17 +29,42 @@ export default defineConfig({
     "playwright-report/**",
     "tools/oxlint/anti-slop/**",
   ],
-  plugins: ["react", "jsx-a11y", "vitest"],
+  // Explicit plugin lists replace Oxlint's native defaults.
+  plugins: ["eslint", "typescript", "unicorn", "oxc", "react", "jsx-a11y", "vitest", "import"],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+    { name: "eslint-js", specifier: "oxlint-plugin-eslint" },
   ],
   rules: {
+    // Oxlint has no native max-len rule; enforce a hard limit through the JS plugin.
+    "eslint-js/max-len": ["error", { code: 100, comments: 100 }],
+    "import/no-cycle": "error",
+    // Existing live regions and the focus-managed dialog intentionally use explicit roles;
+    // output/dialog/img/fieldset are not equivalent drop-in replacements here.
+    "jsx-a11y/prefer-tag-over-role": "off",
     "oxc/no-accumulating-spread": "error",
+    "react/exhaustive-deps": "error",
+    "react/only-export-components": ["error", { allowConstantExport: true }],
+    "react/rules-of-hooks": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-floating-promises": "error",
+    "vitest/no-focused-tests": "error",
+    "vitest/valid-expect": "error",
     // Modified McCabe complexity avoids charging dispatch switches for every case.
-    "complexity": ["error", { max: 20, variant: "modified" }],
+    complexity: ["error", { max: 20, variant: "modified" }],
     ...antiSlopRules,
   },
   overrides: [
+    {
+      // This focus-managed dialog handles Escape and Tab on its role=dialog section.
+      files: ["src/views/devices/ModalDialog.tsx"],
+      rules: { "jsx-a11y/no-noninteractive-element-interactions": "off" },
+    },
+    {
+      // Tests validate the JSON body shape at their fetch boundary.
+      files: ["src/test-helpers.ts"],
+      rules: { "anti-slop/no-runtime-typeof": "off" },
+    },
     {
       // These modules are the deliberate untrusted-input parsing seams. Their
       // typeof checks and unknown dictionaries are the validation, not a

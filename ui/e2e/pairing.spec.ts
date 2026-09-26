@@ -47,7 +47,10 @@ test("reads and replies to an iPhone conversation", async ({ page, request }) =>
   await expect(page.getByRole("textbox", { name: "Message" })).toHaveValue("");
 });
 
-test("uses the brand mark favicon and explains the connection indicator", async ({ page, request }) => {
+test("uses the brand mark favicon and explains the connection indicator", async ({
+  page,
+  request,
+}) => {
   await page.goto("/");
   const indicator = page.getByRole("img", { name: "No device connected" });
   await expect(indicator).toHaveAttribute("title", "No device connected");
@@ -58,10 +61,16 @@ test("uses the brand mark favicon and explains the connection indicator", async 
 
   await resetScenario(request, { paired: true });
   await page.reload();
-  await expect(page.getByRole("img", { name: "Device connected" })).toHaveAttribute("title", "Device connected");
+  await expect(page.getByRole("img", { name: "Device connected" })).toHaveAttribute(
+    "title",
+    "Device connected",
+  );
 });
 
-test("keeps mobile navigation and connection details usable after resizing", async ({ page, request }, testInfo) => {
+test("keeps mobile navigation and connection details usable after resizing", async ({
+  page,
+  request,
+}, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "Start on desktop before resizing to mobile");
   await resetScenario(request, { paired: true });
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -69,24 +78,32 @@ test("keeps mobile navigation and connection details usable after resizing", asy
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await expect.poll(() => page.evaluate(() => {
-    const nav = document.querySelector(".primary-nav");
-    const selected = nav?.querySelector('[aria-current="page"]');
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const nav = document.querySelector(".primary-nav");
+        const selected = nav?.querySelector('[aria-current="page"]');
 
-    if (!nav || !selected) return false;
+        if (!nav || !selected) return false;
 
-    const bounds = nav.getBoundingClientRect();
-    const selectedBounds = selected.getBoundingClientRect();
+        const bounds = nav.getBoundingClientRect();
+        const selectedBounds = selected.getBoundingClientRect();
 
-    return selectedBounds.left >= bounds.left && selectedBounds.right <= bounds.right;
-  })).toBe(true);
+        return selectedBounds.left >= bounds.left && selectedBounds.right <= bounds.right;
+      }),
+    )
+    .toBe(true);
   await expect(page.locator(".nav-rail")).toHaveAttribute("data-scroll-left", "true");
   const navPosition = await page.locator(".primary-nav").evaluate((element) => element.scrollLeft);
   await page.getByRole("button", { name: "Scroll navigation left" }).click();
-  await expect.poll(() => page.locator(".primary-nav").evaluate((element) => element.scrollLeft)).toBeLessThan(navPosition);
+  await expect
+    .poll(() => page.locator(".primary-nav").evaluate((element) => element.scrollLeft))
+    .toBeLessThan(navPosition);
   await expect(page.getByRole("button", { name: "Scroll navigation right" })).toBeVisible();
 
-  const row = page.locator(".settings-row").filter({ has: page.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ }) });
+  const row = page
+    .locator(".settings-row")
+    .filter({ has: page.getByRole("switch", { name: /Notify when a new iPhone alert arrives/ }) });
 
   const alignment = await row.evaluate((element) => {
     const text = element.firstElementChild?.getBoundingClientRect();
@@ -100,13 +117,23 @@ test("keeps mobile navigation and connection details usable after resizing", asy
 
   const footer = page.locator(".route-status-bar");
   await expect(footer.locator("summary")).toContainText("iPhone connected");
-  expect(await footer.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(52);
+  expect(
+    await footer.evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeLessThanOrEqual(52);
   await footer.locator("summary").click();
-  await expect(footer.locator(".mobile-status-details").getByText("Bluetooth: iPhone connected")).toBeVisible();
+  await expect(
+    footer.locator(".mobile-status-details").getByText("Bluetooth: iPhone connected"),
+  ).toBeVisible();
 });
 
-test("keeps long conversations in two independent viewport-height scroll panes", async ({ page, request }, testInfo) => {
-  test.skip(testInfo.project.name === "mobile", "Desktop uses the side-by-side conversation layout");
+test("keeps long conversations in two independent viewport-height scroll panes", async ({
+  page,
+  request,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name === "mobile",
+    "Desktop uses the side-by-side conversation layout",
+  );
   await page.setViewportSize({ width: 1882, height: 1876 });
   await resetScenario(request, { withMessages: true, longMessages: true });
   await page.goto("/");
@@ -128,13 +155,15 @@ test("keeps long conversations in two independent viewport-height scroll panes",
     const footer = document.querySelector(".route-status-bar")!;
 
     return {
-      pageHeight: document.documentElement.scrollHeight, viewportHeight: window.innerHeight,
+      pageHeight: document.documentElement.scrollHeight,
+      viewportHeight: window.innerHeight,
       shellHeight: shell.getBoundingClientRect().height,
       sidebarHeight: sidebar.getBoundingClientRect().height,
       footerBottom: footer.getBoundingClientRect().bottom,
       threadsScrollable: list.scrollHeight > list.clientHeight,
       historyScrollable: conversation.scrollHeight > conversation.clientHeight,
-      distanceFromLatest: conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop,
+      distanceFromLatest:
+        conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop,
     };
   });
 
@@ -153,49 +182,77 @@ test("keeps long conversations in two independent viewport-height scroll panes",
     if (focused instanceof HTMLElement) focused.blur();
   });
 
-  const restingScrollbar = await threads.evaluate((element) => getComputedStyle(element).scrollbarColor);
+  const restingScrollbar = await threads.evaluate(
+    (element) => getComputedStyle(element).scrollbarColor,
+  );
+
   expect(restingScrollbar).toMatch(/^(transparent|rgba\(0, 0, 0, 0\))/);
   await threads.hover();
-  expect(await threads.evaluate((element) => getComputedStyle(element).scrollbarColor)).not.toBe(restingScrollbar);
+  expect(await threads.evaluate((element) => getComputedStyle(element).scrollbarColor)).not.toBe(
+    restingScrollbar,
+  );
   await page.mouse.move(0, 0);
 
   await page.getByRole("textbox", { name: "Message" }).fill("Final test reply");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByLabel("Sent: Final test reply")).toBeVisible();
-  await expect.poll(() => history.evaluate((element) =>
-    element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(2);
+  await expect
+    .poll(() =>
+      history.evaluate(
+        (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+      ),
+    )
+    .toBeLessThan(2);
 
   const originalHistoryScroll = await history.evaluate((element) => element.scrollTop);
-  expect(await threads.evaluate((element) => {
-    element.scrollTop = 180;
+  expect(
+    await threads.evaluate((element) => {
+      element.scrollTop = 180;
 
-    return element.scrollTop;
-  })).toBeGreaterThan(0);
+      return element.scrollTop;
+    }),
+  ).toBeGreaterThan(0);
   expect(await history.evaluate((element) => element.scrollTop)).toBe(originalHistoryScroll);
-  await history.evaluate((element) => { element.scrollTop = 0; });
+  await history.evaluate((element) => {
+    element.scrollTop = 0;
+  });
   expect(await threads.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await expect(threads).toHaveAttribute("data-scrolling", "true");
   await expect(threads).not.toHaveAttribute("data-scrolling");
 });
 
-test("opens a long mobile conversation at the latest message without page scrolling", async ({ page, request }, testInfo) => {
+test("opens a long mobile conversation at the latest message without page scrolling", async ({
+  page,
+  request,
+}, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "Mobile shows one messages pane at a time");
   await resetScenario(request, { withMessages: true, longMessages: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Messages" }).click();
   const threads = page.locator(".messages-threads");
-  await expect.poll(() => threads.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+  await expect
+    .poll(() => threads.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(0);
   await page.getByRole("button", { name: /Ada See you soon/ }).click();
   const history = page.getByRole("list", { name: "Messages in conversation" });
   await expect(page.getByLabel("Received: Test message 81")).toBeVisible();
-  await expect.poll(() => history.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(2);
+  await expect
+    .poll(() =>
+      history.evaluate(
+        (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+      ),
+    )
+    .toBeLessThan(2);
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(
     await page.evaluate(() => window.innerHeight + 2),
   );
   await expect(page.getByRole("button", { name: "Back to conversations" })).toBeVisible();
 });
 
-test("keeps a global unread badge in sync while the Messages view is hidden", async ({ page, request }) => {
+test("keeps a global unread badge in sync while the Messages view is hidden", async ({
+  page,
+  request,
+}) => {
   await resetScenario(request, { withMessages: true });
   await page.goto("/");
   const messages = page.getByRole("button", { name: "Messages" });
@@ -212,7 +269,10 @@ test("keeps a global unread badge in sync while the Messages view is hidden", as
   await expect(page.getByRole("button", { name: "Notifications" })).toBeFocused();
 });
 
-test("opt-in browser alerts redact iPhone content and ignore repeated events", async ({ page, request }) => {
+test("opt-in browser alerts redact iPhone content and ignore repeated events", async ({
+  page,
+  request,
+}) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, "isSecureContext", { value: true });
     Object.defineProperty(document, "visibilityState", { get: () => "hidden" });
@@ -220,7 +280,9 @@ test("opt-in browser alerts redact iPhone content and ignore repeated events", a
 
     class BrowserAlert {
       static permission = "granted";
-      static requestPermission() { return Promise.resolve("granted"); }
+      static requestPermission() {
+        return Promise.resolve("granted");
+      }
       onclick: (() => void) | null = null;
       constructor(title: string, options: NotificationOptions) {
         window.__tetherTestAlerts.push({ title, body: options.body });
@@ -238,16 +300,25 @@ test("opt-in browser alerts redact iPhone content and ignore repeated events", a
   await alerts.click();
   await expect(alerts).toBeChecked();
   expect(await page.evaluate(() => window.__tetherTestAlerts)).toEqual([]);
-  const response = await request.post("http://127.0.0.1:4174/__test/emit-notification", { data: { uid: 101, title: "Secret title", body: "Secret body" } });
+
+  const response = await request.post("http://127.0.0.1:4174/__test/emit-notification", {
+    data: { uid: 101, title: "Secret title", body: "Secret body" },
+  });
+
   expect(response.status()).toBe(204);
-  await expect.poll(() => page.evaluate(() => window.__tetherTestAlerts)).toEqual([
-    { title: "New iPhone notification", body: "Open Tether to view it." },
-  ]);
-  await request.post("http://127.0.0.1:4174/__test/emit-notification", { data: { uid: 101, title: "Secret duplicate" } });
+  await expect
+    .poll(() => page.evaluate(() => window.__tetherTestAlerts))
+    .toEqual([{ title: "New iPhone notification", body: "Open Tether to view it." }]);
+  await request.post("http://127.0.0.1:4174/__test/emit-notification", {
+    data: { uid: 101, title: "Secret duplicate" },
+  });
   expect(await page.evaluate(() => window.__tetherTestAlerts)).toHaveLength(1);
 });
 
-test("searches iPhone contacts and opens an existing or new message thread", async ({ page, request }) => {
+test("searches iPhone contacts and opens an existing or new message thread", async ({
+  page,
+  request,
+}) => {
   await resetScenario(request, { withMessages: true, withContacts: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Contacts" }).click();
@@ -270,7 +341,10 @@ test("searches iPhone contacts and opens an existing or new message thread", asy
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
 });
 
-test("changes host settings without treating them as browser-only preferences", async ({ page, request }) => {
+test("changes host settings without treating them as browser-only preferences", async ({
+  page,
+  request,
+}) => {
   await resetScenario(request, { paired: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
@@ -347,7 +421,9 @@ test("pairs an iPhone through the guided browser flow", async ({ page }) => {
 
   if (await mobileStatus.isVisible()) await mobileStatus.locator("summary").click();
 
-  await expect(page.locator(".route-status-bar .route-status:visible").filter({ hasText: "Bluetooth: ready" })).toBeVisible();
+  await expect(
+    page.locator(".route-status-bar .route-status:visible").filter({ hasText: "Bluetooth: ready" }),
+  ).toBeVisible();
   await candidate.click();
   await page.getByRole("button", { name: "Pair over Bluetooth" }).click();
 
@@ -357,7 +433,11 @@ test("pairs an iPhone through the guided browser flow", async ({ page }) => {
 
   await expect(page.getByText("Pairing complete")).toBeVisible();
   await expect(page.getByText("Paired with someone’s iPhone.")).toBeVisible();
-  await expect(page.locator(".route-status-bar .route-status:visible").filter({ hasText: "Bluetooth: iPhone connected" })).toBeVisible();
+  await expect(
+    page
+      .locator(".route-status-bar .route-status:visible")
+      .filter({ hasText: "Bluetooth: iPhone connected" }),
+  ).toBeVisible();
 });
 
 test("reports a rejected numeric comparison", async ({ page }) => {
@@ -436,7 +516,10 @@ test("sends a batch sequentially", async ({ page, request }) => {
   await expect(page.getByText("2 sent · 0 failed · 0 skipped · 0 queued")).toBeVisible();
 });
 
-test("accepts multiple dropped files and reports skipped non-file items", async ({ page, request }) => {
+test("accepts multiple dropped files and reports skipped non-file items", async ({
+  page,
+  request,
+}) => {
   await resetScenario(request, { withPeer: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Approve and trust" }).click();
@@ -444,7 +527,9 @@ test("accepts multiple dropped files and reports skipped non-file items", async 
     const transfer = new DataTransfer();
     transfer.items.add(new File(["one"], "dropped.txt", { type: "text/plain" }));
     transfer.items.add("https://example.invalid/", "text/uri-list");
-    zone.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    zone.dispatchEvent(
+      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+    );
   });
   await expect(page.getByText("Sent 1 of 1 file. Skipped 1 non-file item.")).toBeVisible();
 });
@@ -453,7 +538,9 @@ test("guides Bluetooth setup and permission recovery", async ({ page, request })
   await resetScenario(request, { paired: true, bluetoothSetup: true });
   await page.goto("/");
 
-  await expect(page.getByText("Compatibility mode — messages and contacts, no notification mirroring.")).toBeVisible();
+  await expect(
+    page.getByText("Compatibility mode — messages and contacts, no notification mirroring."),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Bluetooth setup needed" })).toBeVisible();
   await expect(page.getByText("sudo systemctl restart bluetooth")).toBeVisible();
 
@@ -493,9 +580,14 @@ test("manages connected AirPods", async ({ page, request }) => {
   await expect(page.getByRole("heading", { name: "AirPods Pro" })).toBeVisible();
   await expect(page.getByText("Left earbud 82% · Right earbud 79% · Case 45%")).toBeVisible();
   await page.getByRole("button", { name: "Noise Cancellation" }).click();
-  await expect(page.getByRole("button", { name: "Noise Cancellation" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Noise Cancellation" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await page.getByRole("combobox", { name: "Pause playback when" }).selectOption("both-removed");
-  await expect(page.getByRole("combobox", { name: "Pause playback when" })).toHaveValue("both-removed");
+  await expect(page.getByRole("combobox", { name: "Pause playback when" })).toHaveValue(
+    "both-removed",
+  );
   await page.getByRole("checkbox", { name: /Hand the AirPods/ }).click();
   await expect(page.getByRole("checkbox", { name: /Hand the AirPods/ })).not.toBeChecked();
   await page.getByRole("checkbox", { name: /Manage AirPods/ }).click();
@@ -505,7 +597,10 @@ test("manages connected AirPods", async ({ page, request }) => {
   await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
 });
 
-test("keeps desktop Devices list and detail independently scrollable below the header", async ({ page, request }, testInfo) => {
+test("keeps desktop Devices list and detail independently scrollable below the header", async ({
+  page,
+  request,
+}, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "Desktop has a two-pane device layout");
   await page.setViewportSize({ width: 1280, height: 420 });
   await resetScenario(request, { paired: true, withPeer: true });
@@ -518,8 +613,12 @@ test("keeps desktop Devices list and detail independently scrollable below the h
   await expect(status.locator(".status-channel")).toHaveCount(2);
   await expect(status.locator(".status-channel").first()).toContainText("Messages");
   await expect(status.locator(".status-channel").last()).toContainText("Notifications");
-  await expect.poll(() => list.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
-  await expect.poll(() => detail.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+  await expect
+    .poll(() => list.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() => detail.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(0);
 
   const dimensions = await page.evaluate(() => ({
     page: document.documentElement.scrollHeight,
@@ -530,25 +629,37 @@ test("keeps desktop Devices list and detail independently scrollable below the h
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport + 2);
   expect(dimensions.footer).toBeLessThanOrEqual(dimensions.viewport + 2);
 
-  await list.evaluate((element) => { element.scrollTop = 120; });
+  await list.evaluate((element) => {
+    element.scrollTop = 120;
+  });
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   expect(await detail.evaluate((element) => element.scrollTop)).toBe(0);
 
   const listTop = await list.evaluate((element) => element.scrollTop);
-  await detail.evaluate((element) => { element.scrollTop = 120; });
+  await detail.evaluate((element) => {
+    element.scrollTop = 120;
+  });
   await expect.poll(() => detail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   expect(await list.evaluate((element) => element.scrollTop)).toBe(listTop);
 });
 
-test("keeps mobile Devices content in the normal page flow", async ({ page, request }, testInfo) => {
+test("keeps mobile Devices content in the normal page flow", async ({
+  page,
+  request,
+}, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "Desktop scrolls within its panes");
   await page.setViewportSize({ width: 390, height: 450 });
   await resetScenario(request, { paired: true });
   await page.goto("/");
-  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(0);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight))
+    .toBeGreaterThan(0);
 });
 
-test("keeps device controls and dialogs usable at the configured viewport", async ({ page, request }) => {
+test("keeps device controls and dialogs usable at the configured viewport", async ({
+  page,
+  request,
+}) => {
   await resetScenario(request, { paired: true, bluetoothSetup: true });
   await page.goto("/");
 
@@ -575,7 +686,7 @@ test("keeps device controls and dialogs usable at the configured viewport", asyn
   expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(viewport!.height);
 });
 
-test("surfaces a gateway command failure", async ({ page, request }) => {
+test("surfaces a gateway command failure", async ({ page }) => {
   await page.goto("/");
   await failNextCommand(page, "bt_scan");
 

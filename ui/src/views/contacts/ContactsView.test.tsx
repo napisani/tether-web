@@ -6,32 +6,67 @@ import type { useContacts } from "./useContacts";
 type Contacts = ReturnType<typeof useContacts>;
 
 function model(partial: Partial<Contacts["state"]> = {}): Contacts {
-  return { state: {
-    contacts: [{ name: "Áda", addresses: ["tel:+15550102", "email:ada@example.com"] },
-      { name: "Grace", addresses: ["tel:+15550103"] }],
-    loaded: true, loading: false, pbapOpen: true, reason: "", error: "", ...partial,
-  }, refresh: vi.fn(), handleEvent: vi.fn(), handleDisconnect: vi.fn() };
+  return {
+    state: {
+      contacts: [
+        { name: "Áda", addresses: ["tel:+15550102", "email:ada@example.com"] },
+        { name: "Grace", addresses: ["tel:+15550103"] },
+      ],
+      loaded: true,
+      loading: false,
+      pbapOpen: true,
+      reason: "",
+      error: "",
+      ...partial,
+    },
+    refresh: vi.fn<Contacts["refresh"]>(),
+    handleEvent: vi.fn<Contacts["handleEvent"]>(),
+    handleDisconnect: vi.fn<Contacts["handleDisconnect"]>(),
+  };
 }
 
 describe("Contacts view", () => {
   it("filters accents, shows grouped addresses and hands daemon keys to Messages", () => {
-    const onMessage = vi.fn();
-    render(<ContactsView contacts={model()} daemonConnected available onMessage={onMessage} onOpenDevices={vi.fn()} />);
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search contacts" }), { target: { value: "ada@example" } });
+    const onMessage = vi.fn<(thread: string, name: string) => void>();
+    render(
+      <ContactsView
+        contacts={model()}
+        daemonConnected
+        available
+        onMessage={onMessage}
+        onOpenDevices={() => {}}
+      />,
+    );
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search contacts" }), {
+      target: { value: "ada@example" },
+    });
     expect(screen.getByText("Áda")).toBeInTheDocument();
     expect(screen.queryByText("Grace")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Áda"));
     expect(screen.getByText("+15550102")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Message +15550102" }));
     expect(onMessage).toHaveBeenCalledWith("tel:+15550102", "Áda");
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search contacts" }), { target: { value: "no match" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search contacts" }), {
+      target: { value: "no match" },
+    });
     expect(screen.getByText("No contacts match your search.")).toBeInTheDocument();
   });
 
-  it("copies display text rather than a namespaced key, and reports clipboard failure", async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error("permission denied"));
+  it("copies display text instead of the key and reports clipboard failure", async () => {
+    const writeText = vi
+      .fn<(text: string) => Promise<void>>()
+      .mockRejectedValue(new Error("permission denied"));
+
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    render(<ContactsView contacts={model()} daemonConnected available onMessage={vi.fn()} onOpenDevices={vi.fn()} />);
+    render(
+      <ContactsView
+        contacts={model()}
+        daemonConnected
+        available
+        onMessage={() => {}}
+        onOpenDevices={() => {}}
+      />,
+    );
     fireEvent.click(screen.getByText("Áda"));
     fireEvent.click(screen.getByRole("button", { name: "Copy +15550102" }));
     expect(writeText).toHaveBeenCalledWith("+15550102");
@@ -44,7 +79,15 @@ describe("Contacts view", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
 
     try {
-      render(<ContactsView contacts={model()} daemonConnected available onMessage={vi.fn()} onOpenDevices={vi.fn()} />);
+      render(
+        <ContactsView
+          contacts={model()}
+          daemonConnected
+          available
+          onMessage={() => {}}
+          onOpenDevices={() => {}}
+        />,
+      );
       fireEvent.click(screen.getByText("Áda"));
       fireEvent.click(screen.getByRole("button", { name: "Copy +15550102" }));
       expect(screen.getByRole("alert")).toHaveTextContent("Could not copy this address");
@@ -55,21 +98,51 @@ describe("Contacts view", () => {
   });
 
   it("distinguishes unavailable, disconnected, missing PBAP and empty results", () => {
-    const onOpenDevices = vi.fn();
+    const onOpenDevices = vi.fn<() => void>();
 
-    const { rerender } = render(<ContactsView contacts={model()} daemonConnected={false} available
-      onMessage={vi.fn()} onOpenDevices={onOpenDevices} />);
+    const { rerender } = render(
+      <ContactsView
+        contacts={model()}
+        daemonConnected={false}
+        available
+        onMessage={() => {}}
+        onOpenDevices={onOpenDevices}
+      />,
+    );
 
     expect(screen.getByText("Reconnect to tetherd to load contacts.")).toBeInTheDocument();
 
-    rerender(<ContactsView contacts={model()} daemonConnected available={false} onMessage={vi.fn()} onOpenDevices={onOpenDevices} />);
+    rerender(
+      <ContactsView
+        contacts={model()}
+        daemonConnected
+        available={false}
+        onMessage={() => {}}
+        onOpenDevices={onOpenDevices}
+      />,
+    );
     expect(screen.getByText(/does not advertise Contacts/)).toBeInTheDocument();
-    rerender(<ContactsView contacts={model({ pbapOpen: false, reason: "The iPhone denied access." })}
-      daemonConnected available onMessage={vi.fn()} onOpenDevices={onOpenDevices} />);
+    rerender(
+      <ContactsView
+        contacts={model({ pbapOpen: false, reason: "The iPhone denied access." })}
+        daemonConnected
+        available
+        onMessage={() => {}}
+        onOpenDevices={onOpenDevices}
+      />,
+    );
     expect(screen.getByText("The iPhone denied access.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View device connection" }));
     expect(onOpenDevices).toHaveBeenCalled();
-    rerender(<ContactsView contacts={model({ contacts: [] })} daemonConnected available onMessage={vi.fn()} onOpenDevices={onOpenDevices} />);
+    rerender(
+      <ContactsView
+        contacts={model({ contacts: [] })}
+        daemonConnected
+        available
+        onMessage={() => {}}
+        onOpenDevices={onOpenDevices}
+      />,
+    );
     expect(screen.getByText(/No contacts yet/)).toBeInTheDocument();
   });
 });

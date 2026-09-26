@@ -15,7 +15,12 @@ afterEach(() => {
 
 describe("browser notification preference", () => {
   it("only announces a live hidden-page ANCS event, redacted and deduplicated", async () => {
-    const created: Array<{ title: string; options: NotificationOptions; onclick: (() => void) | null; close: () => void }> = [];
+    const created: Array<{
+      title: string;
+      options: NotificationOptions;
+      onclick: (() => void) | null;
+      close: () => void;
+    }> = [];
 
     class FakeNotification {
       static permission: NotificationPermission = "granted";
@@ -39,12 +44,29 @@ describe("browser notification preference", () => {
     await act(async () => result.current.enable());
     act(() => {
       result.current.handleEvent({ command: "gateway_status", daemon_connected: true });
-      result.current.handleEvent({ command: "bt_status", available: true, ancs_enabled: true, device_address: "AA" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: true,
+        device_address: "AA",
+      });
       result.current.handleEvent({ command: "bt_connection_changed", ancs_ready: true });
-      result.current.handleEvent({ command: "bt_notifications", notifications: [{ uid: 3, title: "Private initial" }] });
+      result.current.handleEvent({
+        command: "bt_notifications",
+        notifications: [{ uid: 3, title: "Private initial" }],
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 3, title: "Private replay" });
-      result.current.handleEvent({ command: "bt_notification", uid: 4, title: "Private title", body: "Private body" });
-      result.current.handleEvent({ command: "bt_notification", uid: 4, title: "Private duplicate" });
+      result.current.handleEvent({
+        command: "bt_notification",
+        uid: 4,
+        title: "Private title",
+        body: "Private body",
+      });
+      result.current.handleEvent({
+        command: "bt_notification",
+        uid: 4,
+        title: "Private duplicate",
+      });
     });
     expect(created).toHaveLength(1);
     expect(created[0].title).toBe("New iPhone notification");
@@ -53,12 +75,18 @@ describe("browser notification preference", () => {
     expect(onOpen).toHaveBeenCalledOnce();
     act(() => result.current.handleDisconnect());
     act(() => result.current.handleEvent({ command: "bt_connection_changed", ancs_ready: true }));
-    act(() => result.current.handleEvent({ command: "bt_notification", uid: 5, title: "After disconnect" }));
+    act(() =>
+      result.current.handleEvent({ command: "bt_notification", uid: 5, title: "After disconnect" }),
+    );
     expect(created).toHaveLength(1);
   });
 
-  it("stops alerts on ANCS disable, device change, or Bluetooth loss until a fresh ready status", async () => {
-    const browserApi = Object.assign(vi.fn(), { permission: "granted", requestPermission: vi.fn() });
+  it("stops alerts on ANCS disable, device change or Bluetooth loss", async () => {
+    const browserApi = Object.assign(vi.fn(), {
+      permission: "granted",
+      requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+    });
+
     vi.stubGlobal("Notification", browserApi);
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     const { result } = renderHook(() => useBrowserNotifications(vi.fn()));
@@ -66,13 +94,21 @@ describe("browser notification preference", () => {
     act(() => {
       result.current.handleEvent({ command: "gateway_status", daemon_connected: true });
       result.current.handleEvent({ command: "bt_connection_changed", ancs_ready: true });
-      result.current.handleEvent({ command: "bt_notifications", notifications: [{ uid: 7, title: "Historical" }] });
+      result.current.handleEvent({
+        command: "bt_notifications",
+        notifications: [{ uid: 7, title: "Historical" }],
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 0 });
     });
     expect(browserApi).not.toHaveBeenCalled();
     act(() => {
-      result.current.handleEvent({ command: "bt_status", available: true, enabled: true,
-        ancs_enabled: true, device_address: "AA" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        enabled: true,
+        ancs_enabled: true,
+        device_address: "AA",
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 7 });
     });
     expect(browserApi).not.toHaveBeenCalled();
@@ -81,12 +117,22 @@ describe("browser notification preference", () => {
     });
     expect(browserApi).toHaveBeenCalledTimes(1);
     act(() => {
-      result.current.handleEvent({ command: "bt_status", available: true, ancs_enabled: false, device_address: "AA" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: false,
+        device_address: "AA",
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 2 });
     });
     expect(browserApi).toHaveBeenCalledTimes(1);
     act(() => {
-      result.current.handleEvent({ command: "bt_status", available: true, ancs_enabled: true, device_address: "BB" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: true,
+        device_address: "BB",
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 3 });
     });
     expect(browserApi).toHaveBeenCalledTimes(1);
@@ -96,28 +142,57 @@ describe("browser notification preference", () => {
     });
     expect(browserApi).toHaveBeenCalledTimes(2);
     act(() => {
-      result.current.handleEvent({ command: "bt_status", available: true, ancs_enabled: true, device_address: "CC" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: true,
+        device_address: "CC",
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 5 });
       result.current.handleEvent({ command: "bt_connection_changed", ancs_ready: true });
-      result.current.handleEvent({ command: "bt_status", available: false, ancs_enabled: true, device_address: "CC" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: false,
+        ancs_enabled: true,
+        device_address: "CC",
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 6 });
     });
     expect(browserApi).toHaveBeenCalledTimes(2);
   });
 
-  it("requires fresh ANCS readiness after a disabled status, not a late prior-session event", async () => {
-    const browserApi = Object.assign(vi.fn(), { permission: "granted", requestPermission: vi.fn() });
+  it("requires fresh ANCS readiness after disabling, ignoring stale events", async () => {
+    const browserApi = Object.assign(vi.fn(), {
+      permission: "granted",
+      requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+    });
+
     vi.stubGlobal("Notification", browserApi);
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     const { result } = renderHook(() => useBrowserNotifications(vi.fn()));
     await act(async () => result.current.enable());
     act(() => {
       result.current.handleEvent({ command: "gateway_status", daemon_connected: true });
-      result.current.handleEvent({ command: "bt_status", available: true, ancs_enabled: true, device_address: "AA" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: true,
+        device_address: "AA",
+      });
       result.current.handleEvent({ command: "bt_connection_changed", ancs_ready: true });
-      result.current.handleEvent({ command: "bt_status", available: true, ancs_enabled: false, device_address: "AA" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: false,
+        device_address: "AA",
+      });
       result.current.handleEvent({ command: "bt_connection_changed", ancs_ready: true });
-      result.current.handleEvent({ command: "bt_status", available: true, ancs_enabled: true, device_address: "AA" });
+      result.current.handleEvent({
+        command: "bt_status",
+        available: true,
+        ancs_enabled: true,
+        device_address: "AA",
+      });
       result.current.handleEvent({ command: "bt_notification", uid: 1 });
     });
     expect(browserApi).not.toHaveBeenCalled();
@@ -128,22 +203,34 @@ describe("browser notification preference", () => {
     expect(browserApi).toHaveBeenCalledOnce();
   });
 
-  it("disables a persisted preference when permission is revoked, even before another event", async () => {
-    const browserApi = Object.assign(vi.fn(), { permission: "granted", requestPermission: vi.fn() });
+  it("disables a persisted preference when permission is revoked", async () => {
+    const browserApi = Object.assign(vi.fn(), {
+      permission: "granted",
+      requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+    });
+
     vi.stubGlobal("Notification", browserApi);
     const { result } = renderHook(() => useBrowserNotifications(vi.fn()));
     await act(async () => result.current.enable());
     browserApi.permission = "denied";
-    act(() => window.dispatchEvent(new Event("focus")));
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
     expect(result.current.state).toMatchObject({ enabled: false, permission: "denied" });
     expect(localStorage.getItem("tether-web:browser-notifications:v1")).toBe("disabled");
     browserApi.permission = "granted";
-    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
     expect(result.current.state).toMatchObject({ enabled: false, permission: "granted" });
   });
 
   it("notices permission revocation before delivering a live event", async () => {
-    const browserApi = Object.assign(vi.fn(), { permission: "granted", requestPermission: vi.fn() });
+    const browserApi = Object.assign(vi.fn(), {
+      permission: "granted",
+      requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+    });
+
     vi.stubGlobal("Notification", browserApi);
     const { result } = renderHook(() => useBrowserNotifications(vi.fn()));
     await act(async () => result.current.enable());
@@ -158,8 +245,14 @@ describe("browser notification preference", () => {
   });
 
   it("does not enable alerts without permission or a secure origin", async () => {
-    const requestPermission = vi.fn<() => Promise<NotificationPermission>>().mockResolvedValue("denied");
-    vi.stubGlobal("Notification", Object.assign(vi.fn(), { permission: "default", requestPermission }));
+    const requestPermission = vi
+      .fn<() => Promise<NotificationPermission>>()
+      .mockResolvedValue("denied");
+
+    vi.stubGlobal(
+      "Notification",
+      Object.assign(vi.fn(), { permission: "default", requestPermission }),
+    );
     const { result } = renderHook(() => useBrowserNotifications(vi.fn()));
 
     await act(async () => result.current.enable());
@@ -172,22 +265,41 @@ describe("browser notification preference", () => {
   });
 
   it("survives disabled storage and a preference change from another tab", async () => {
-    vi.stubGlobal("Notification", Object.assign(vi.fn(), { permission: "granted", requestPermission: vi.fn() }));
+    vi.stubGlobal(
+      "Notification",
+      Object.assign(vi.fn(), {
+        permission: "granted",
+        requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+      }),
+    );
     const { result } = renderHook(() => useBrowserNotifications(vi.fn()));
     await act(async () => result.current.enable());
-    act(() => window.dispatchEvent(new StorageEvent("storage", {
-      key: "tether-web:browser-notifications:v1", newValue: "disabled",
-    })));
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "tether-web:browser-notifications:v1",
+          newValue: "disabled",
+        }),
+      );
+    });
     expect(result.current.state.enabled).toBe(false);
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage blocked"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
     await act(async () => result.current.enable());
-    expect(result.current.state).toMatchObject({ enabled: true, error: expect.stringContaining("could not save") });
+    expect(result.current.state).toMatchObject({
+      enabled: true,
+      error: expect.stringContaining("could not save"),
+    });
     act(() => result.current.disable());
     expect(result.current.state.enabled).toBe(false);
   });
 
   it("defaults off and only enables after user-initiated browser permission", async () => {
-    const requestPermission = vi.fn<() => Promise<NotificationPermission>>().mockResolvedValue("granted");
+    const requestPermission = vi
+      .fn<() => Promise<NotificationPermission>>()
+      .mockResolvedValue("granted");
+
     const browserApi = Object.assign(vi.fn(), { permission: "default", requestPermission });
     vi.stubGlobal("Notification", browserApi);
     const { result, unmount } = renderHook(() => useBrowserNotifications(vi.fn()));

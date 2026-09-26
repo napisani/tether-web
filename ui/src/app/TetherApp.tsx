@@ -43,7 +43,10 @@ export function TetherApp() {
   const [settingsProtocolKnown, setSettingsProtocolKnown] = useState(false);
   const fileTransfer = useFileTransfer();
   const messages = useMessages(route === "messages");
-  const hasCapability = (capability: string) => state.daemon.protocol?.capabilities.includes(capability) === true;
+
+  const hasCapability = (capability: string) =>
+    state.daemon.protocol?.capabilities.includes(capability) === true;
+
   const contactsAvailable = hasCapability("contacts");
   const contacts = useContacts(route === "contacts" && contactsAvailable);
   const settingsAvailable = settingsSupported(state.daemon.protocol, settingsProtocolKnown);
@@ -60,14 +63,16 @@ export function TetherApp() {
     if (!force && lastCallsEnabled.current === enabled) return;
     lastCallsEnabled.current = enabled;
     // bt_set_calls broadcasts bt_status, not the resulting protocol_info.
-    void sendDaemonCommand({ command: "protocol_info" }).then(() => {
-      if (lastCallsEnabled.current === enabled) setCallsCapabilityError(false);
-    }).catch(() => {
-      if (lastCallsEnabled.current === enabled) {
-        lastCallsEnabled.current = undefined;
-        setCallsCapabilityError(true);
-      }
-    });
+    void sendDaemonCommand({ command: "protocol_info" })
+      .then(() => {
+        if (lastCallsEnabled.current === enabled) setCallsCapabilityError(false);
+      })
+      .catch(() => {
+        if (lastCallsEnabled.current === enabled) {
+          lastCallsEnabled.current = undefined;
+          setCallsCapabilityError(true);
+        }
+      });
   }, []);
 
   const resetCapabilities = useCallback(() => {
@@ -79,8 +84,18 @@ export function TetherApp() {
   const markProtocolKnown = useCallback(() => setSettingsProtocolKnown(true), []);
 
   const lifecycle = useDaemonLifecycle({
-    features: { fileTransfer, messages, contacts, settings, browserNotifications, notifications, calls },
-    dispatch, onResetCapabilities: resetCapabilities, onProtocolInfo: markProtocolKnown,
+    features: {
+      fileTransfer,
+      messages,
+      contacts,
+      settings,
+      browserNotifications,
+      notifications,
+      calls,
+    },
+    dispatch,
+    onResetCapabilities: resetCapabilities,
+    onProtocolInfo: markProtocolKnown,
     onBluetoothStatus: refreshCallsCapability,
   });
 
@@ -89,11 +104,15 @@ export function TetherApp() {
   const actions = useBluetoothCommands(state.devices.pairing, dispatch);
   const airpodsActions = useAirPodsCommands(dispatch);
   const peerActions = usePeerCommands(dispatch);
+  const discoverPeers = peerActions.discover;
   const peerDiscoveryAvailable = state.daemon.protocol?.capabilities.includes("peers") === true;
-  const bluetoothPairingAvailable = state.daemon.protocol?.capabilities.includes("bluetooth.pairing") === true;
+
+  const bluetoothPairingAvailable =
+    state.daemon.protocol?.capabilities.includes("bluetooth.pairing") === true;
+
   useEffect(() => {
-    if (state.daemon.connected && peerDiscoveryAvailable) peerActions.discover();
-  }, [peerActions.discover, peerDiscoveryAvailable, state.daemon.connected]);
+    if (state.daemon.connected && peerDiscoveryAvailable) discoverPeers();
+  }, [discoverPeers, peerDiscoveryAvailable, state.daemon.connected]);
 
   const bluetoothAvailable = state.devices.bluetooth?.available ?? false;
   const wifiConnected = state.devices.wifi.peers.some((peer) => peer.paired && peer.connected);
@@ -104,8 +123,18 @@ export function TetherApp() {
 
   const showCalls = callsTabVisible(state.daemon.connected, state.devices.bluetooth);
 
-  useAppShortcuts({ onNavigate: setRoute, onNewMessage: () => { messages.startCompose(); setRoute("messages"); },
-    onSearch: () => { setSearchRequested(true); setRoute("messages"); }, showCalls });
+  useAppShortcuts({
+    onNavigate: setRoute,
+    onNewMessage: () => {
+      messages.startCompose();
+      setRoute("messages");
+    },
+    onSearch: () => {
+      setSearchRequested(true);
+      setRoute("messages");
+    },
+    showCalls,
+  });
   useAppRouteEffects(route, showCalls, searchRequested, setRoute, () => setSearchRequested(false));
 
   return (
@@ -121,43 +150,77 @@ export function TetherApp() {
       showCalls={showCalls}
       version={state.devices.bluetooth?.version}
     >
-      {route === "notifications" && <NotificationsView notifications={notifications} daemonConnected={state.daemon.connected}
-        available={notificationsAvailable}
-        onOpenDevices={() => setRoute("devices")} />}
-      {route === "calls" && <CallsView calls={calls} daemonConnected={state.daemon.connected}
-        available={callsAvailable} enabled={state.devices.bluetooth?.calls_enabled}
-        capabilityError={callsCapabilityError}
-        onRetryCapability={() => {
-          if (state.devices.bluetooth?.calls_enabled !== undefined) {
-            refreshCallsCapability(state.devices.bluetooth.calls_enabled, true);
-          }
-        }} />}
-      {route === "messages" && <MessagesView messages={messages} daemonConnected={state.daemon.connected}
-        available={hasCapability("messages")} />}
-      {route === "contacts" && <ContactsView contacts={contacts} daemonConnected={state.daemon.connected}
-        available={contactsAvailable} onOpenDevices={() => setRoute("devices")}
-        onMessage={(thread, name) => { messages.openThread(thread, name); setRoute("messages"); }} />}
-      {route === "settings" && <SettingsView settings={settings} daemonConnected={state.daemon.connected}
-        available={settingsAvailable} checking={!settingsProtocolKnown} onOpenDevices={() => setRoute("devices")}
-        browserNotifications={browserNotifications} />}
-      {route === "devices" && <DevicesView
-        daemon={state.daemon}
-        state={state.devices}
-        onScan={() => {
-          if (bluetoothPairingAvailable && bluetoothAvailable) actions.scan();
+      {route === "notifications" && (
+        <NotificationsView
+          notifications={notifications}
+          daemonConnected={state.daemon.connected}
+          available={notificationsAvailable}
+          onOpenDevices={() => setRoute("devices")}
+        />
+      )}
+      {route === "calls" && (
+        <CallsView
+          calls={calls}
+          daemonConnected={state.daemon.connected}
+          available={callsAvailable}
+          enabled={state.devices.bluetooth?.calls_enabled}
+          capabilityError={callsCapabilityError}
+          onRetryCapability={() => {
+            if (state.devices.bluetooth?.calls_enabled !== undefined) {
+              refreshCallsCapability(state.devices.bluetooth.calls_enabled, true);
+            }
+          }}
+        />
+      )}
+      {route === "messages" && (
+        <MessagesView
+          messages={messages}
+          daemonConnected={state.daemon.connected}
+          available={hasCapability("messages")}
+        />
+      )}
+      {route === "contacts" && (
+        <ContactsView
+          contacts={contacts}
+          daemonConnected={state.daemon.connected}
+          available={contactsAvailable}
+          onOpenDevices={() => setRoute("devices")}
+          onMessage={(thread, name) => {
+            messages.openThread(thread, name);
+            setRoute("messages");
+          }}
+        />
+      )}
+      {route === "settings" && (
+        <SettingsView
+          settings={settings}
+          daemonConnected={state.daemon.connected}
+          available={settingsAvailable}
+          checking={!settingsProtocolKnown}
+          onOpenDevices={() => setRoute("devices")}
+          browserNotifications={browserNotifications}
+        />
+      )}
+      {route === "devices" && (
+        <DevicesView
+          daemon={state.daemon}
+          state={state.devices}
+          onScan={() => {
+            if (bluetoothPairingAvailable && bluetoothAvailable) actions.scan();
 
-          if (peerDiscoveryAvailable) peerActions.discover();
-        }}
-        onPair={actions.pair}
-        onUnpair={actions.unpair}
-        onConfirmPairing={actions.confirmPairing}
-        onSetBluetoothEnabled={actions.setEnabled}
-        onSolicitPermissions={actions.solicitPermissions}
-        onResetPairing={actions.resetPairing}
-        airpodsActions={airpodsActions}
-        peerActions={peerActions}
-        fileTransfer={fileTransfer}
-      />}
+            if (peerDiscoveryAvailable) peerActions.discover();
+          }}
+          onPair={actions.pair}
+          onUnpair={actions.unpair}
+          onConfirmPairing={actions.confirmPairing}
+          onSetBluetoothEnabled={actions.setEnabled}
+          onSolicitPermissions={actions.solicitPermissions}
+          onResetPairing={actions.resetPairing}
+          airpodsActions={airpodsActions}
+          peerActions={peerActions}
+          fileTransfer={fileTransfer}
+        />
+      )}
     </AppShell>
   );
 }

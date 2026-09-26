@@ -59,19 +59,28 @@ export function useBrowserNotifications(onOpenNotifications: () => void) {
   const ready = useRef(false);
   const seen = useRef(new Set<number>());
 
-  useEffect(() => { current.current = state; }, [state]);
-  useEffect(() => { onOpen.current = onOpenNotifications; }, [onOpenNotifications]);
+  useEffect(() => {
+    current.current = state;
+  }, [state]);
+  useEffect(() => {
+    onOpen.current = onOpenNotifications;
+  }, [onOpenNotifications]);
 
   const syncPermission = useCallback(() => {
     const permission = supported() ? Notification.permission : "unsupported";
 
     if (current.current.enabled && permission !== "granted") savePreference(false);
-    current.current = { ...current.current, enabled: current.current.enabled && permission === "granted", permission };
+    current.current = {
+      ...current.current,
+      enabled: current.current.enabled && permission === "granted",
+      permission,
+    };
     setState((value) => {
       const enabled = value.enabled && permission === "granted";
 
-      return value.enabled === enabled && value.permission === permission ? value :
-        { ...value, enabled, permission, error: "" };
+      return value.enabled === enabled && value.permission === permission
+        ? value
+        : { ...value, enabled, permission, error: "" };
     });
 
     return permission;
@@ -91,9 +100,12 @@ export function useBrowserNotifications(onOpenNotifications: () => void) {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== preferenceKey && event.key !== null) return;
 
-      setState((value) => ({ ...value,
-        enabled: event.newValue === "enabled" && supported() && Notification.permission === "granted",
-        error: "" }));
+      setState((value) => ({
+        ...value,
+        enabled:
+          event.newValue === "enabled" && supported() && Notification.permission === "granted",
+        error: "",
+      }));
     };
 
     window.addEventListener("storage", onStorage);
@@ -103,29 +115,50 @@ export function useBrowserNotifications(onOpenNotifications: () => void) {
 
   const enable = async () => {
     if (!supported()) {
-      setState((value) => ({ ...value, enabled: false, permission: "unsupported",
-        error: "Browser notifications require a secure origin and Notification support." }));
+      setState((value) => ({
+        ...value,
+        enabled: false,
+        permission: "unsupported",
+        error: "Browser notifications require a secure origin and Notification support.",
+      }));
 
       return;
     }
 
     try {
-      const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      const permission =
+        Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+
       const enabled = permission === "granted";
       const saved = savePreference(enabled);
 
-      setState({ enabled, permission, error: enabled && !saved ? "Enabled for this tab, but the browser could not save this preference." :
-        enabled ? "" : "Browser notification permission was not granted." });
+      setState({
+        enabled,
+        permission,
+        error:
+          enabled && !saved
+            ? "Enabled for this tab, but the browser could not save this preference."
+            : enabled
+              ? ""
+              : "Browser notification permission was not granted.",
+      });
     } catch {
-      setState((value) => ({ ...value, enabled: false, error: "Could not request browser notification permission." }));
+      setState((value) => ({
+        ...value,
+        enabled: false,
+        error: "Could not request browser notification permission.",
+      }));
     }
   };
 
   const disable = () => {
     const saved = savePreference(false);
 
-    setState((value) => ({ ...value, enabled: false,
-      error: saved ? "" : "Disabled for this tab, but the browser could not save this preference." }));
+    setState((value) => ({
+      ...value,
+      enabled: false,
+      error: saved ? "" : "Disabled for this tab, but the browser could not save this preference.",
+    }));
   };
 
   const handleDisconnect = useCallback(() => {
@@ -139,12 +172,15 @@ export function useBrowserNotifications(onOpenNotifications: () => void) {
   }, []);
 
   const handleStatus = useCallback((event: Extract<DaemonEvent, { command: "bt_status" }>) => {
-    const deviceChanged = deviceAddress.current !== undefined && event.device_address !== undefined &&
+    const deviceChanged =
+      deviceAddress.current !== undefined &&
+      event.device_address !== undefined &&
       deviceAddress.current !== event.device_address;
 
     if (event.device_address !== undefined) deviceAddress.current = event.device_address;
     statusSeen.current = true;
-    statusAllowsAlerts.current = event.available && event.enabled !== false && event.ancs_enabled !== false;
+    statusAllowsAlerts.current =
+      event.available && event.enabled !== false && event.ancs_enabled !== false;
 
     if (deviceChanged || !statusAllowsAlerts.current) {
       connectionReady.current = false;
@@ -156,58 +192,70 @@ export function useBrowserNotifications(onOpenNotifications: () => void) {
     }
   }, []);
 
-  const handleEvent = useCallback((event: DaemonEvent) => {
-    switch (event.command) {
-      case "gateway_status":
-        online.current = event.daemon_connected;
+  const handleEvent = useCallback(
+    (event: DaemonEvent) => {
+      switch (event.command) {
+        case "gateway_status":
+          online.current = event.daemon_connected;
 
-        if (!event.daemon_connected) handleDisconnect();
-        break;
-      case "bt_status":
-        handleStatus(event);
-        break;
-      case "bt_connection_changed":
-        if (!online.current) break;
+          if (!event.daemon_connected) handleDisconnect();
+          break;
+        case "bt_status":
+          handleStatus(event);
+          break;
+        case "bt_connection_changed":
+          if (!online.current) break;
 
-        // Preserve a snapshot connection that precedes bt_status, but do not
-        // resurrect readiness from a late event while status explicitly denies ANCS.
-        connectionReady.current = event.ancs_ready === true && (!statusSeen.current || statusAllowsAlerts.current);
-        ready.current = statusAllowsAlerts.current && connectionReady.current;
+          // Preserve a snapshot connection that precedes bt_status, but do not
+          // resurrect readiness from a late event while status explicitly denies ANCS.
+          connectionReady.current =
+            event.ancs_ready === true && (!statusSeen.current || statusAllowsAlerts.current);
+          ready.current = statusAllowsAlerts.current && connectionReady.current;
 
-        if (!ready.current) seen.current.clear();
+          if (!ready.current) seen.current.clear();
 
-        break;
-      case "bt_notifications":
-        // A gateway snapshot can deliver the list before bt_status; seed UIDs
-        // without showing alerts, then require authoritative status for delivery.
-        if (online.current && connectionReady.current) {
-          event.notifications.forEach((item) => rememberUid(seen.current, item.uid));
-        }
+          break;
+        case "bt_notifications":
+          // A gateway snapshot can deliver the list before bt_status; seed UIDs
+          // without showing alerts, then require authoritative status for delivery.
+          if (online.current && connectionReady.current) {
+            event.notifications.forEach((item) => rememberUid(seen.current, item.uid));
+          }
 
-        break;
-      case "bt_notification":
-        if (syncPermission() !== "granted" || !online.current || !statusAllowsAlerts.current ||
-          !ready.current || !current.current.enabled ||
-          document.visibilityState !== "hidden" || seen.current.has(event.uid)) break;
+          break;
+        case "bt_notification":
+          if (
+            syncPermission() !== "granted" ||
+            !online.current ||
+            !statusAllowsAlerts.current ||
+            !ready.current ||
+            !current.current.enabled ||
+            document.visibilityState !== "hidden" ||
+            seen.current.has(event.uid)
+          )
+            break;
 
-        try {
-          const notice = new Notification("New iPhone notification", {
-            body: "Open Tether to view it.", tag: `tether-ancs-${event.uid}`,
-          });
+          try {
+            const notice = new Notification("New iPhone notification", {
+              body: "Open Tether to view it.",
+              tag: `tether-ancs-${event.uid}`,
+            });
 
-          rememberUid(seen.current, event.uid);
-          notice.onclick = () => {
-            window.focus();
-            onOpen.current();
-            notice.close();
-          };
-        } catch {
-          setState((value) => ({ ...value, error: "Could not show a browser notification." }));
-        }
+            rememberUid(seen.current, event.uid);
+            notice.onclick = () => {
+              window.focus();
+              onOpen.current();
+              notice.close();
+            };
+          } catch {
+            setState((value) => ({ ...value, error: "Could not show a browser notification." }));
+          }
 
-        break;
-    }
-  }, [handleDisconnect, handleStatus, syncPermission]);
+          break;
+      }
+    },
+    [handleDisconnect, handleStatus, syncPermission],
+  );
 
   return { state, enable, disable, handleEvent, handleDisconnect };
 }

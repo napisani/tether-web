@@ -43,8 +43,12 @@ export function useSettings(visible: boolean) {
     const previousStatus = statusSequence.current;
 
     void sendDaemonCommand({ command: "bt_status" }).catch(() => {
-      if (requestEpoch === epoch.current && requestSequence === refreshSequence.current &&
-        previousStatus === statusSequence.current && visibleRef.current) {
+      if (
+        requestEpoch === epoch.current &&
+        requestSequence === refreshSequence.current &&
+        previousStatus === statusSequence.current &&
+        visibleRef.current
+      ) {
         setState((value) => ({ ...value, error: refreshError }));
       }
     });
@@ -63,33 +67,45 @@ export function useSettings(visible: boolean) {
 
     if (pending.current) pending.current = { ...pending.current, phase: "uncertain" };
 
-    setState({ status: null, pending: pending.current,
-      error: pending.current ? "Connection lost; the setting may have changed. Check the host before retrying." : "" });
+    setState({
+      status: null,
+      pending: pending.current,
+      error: pending.current
+        ? "Connection lost; the setting may have changed. Check the host before retrying."
+        : "",
+    });
   }, [clearTimer]);
 
-  const handleEvent = useCallback((event: DaemonEvent) => {
-    if (event.command === "gateway_status") {
-      if (!event.daemon_connected) handleDisconnect();
-      else {
-        online.current = true;
+  const handleEvent = useCallback(
+    (event: DaemonEvent) => {
+      if (event.command === "gateway_status") {
+        if (!event.daemon_connected) handleDisconnect();
+        else {
+          online.current = true;
 
-        if (visibleRef.current) refresh();
+          if (visibleRef.current) refresh();
+        }
       }
-    }
 
-    if (event.command !== "bt_status" || !online.current) return;
+      if (event.command !== "bt_status" || !online.current) return;
 
-    statusSequence.current++;
-    const active = pending.current;
+      statusSequence.current++;
+      const active = pending.current;
 
-    if (active && event[active.setting] === active.expected) {
-      clearTimer();
-      pending.current = null;
-    }
+      if (active && event[active.setting] === active.expected) {
+        clearTimer();
+        pending.current = null;
+      }
 
-    setState((value) => ({ ...value, status: event, pending: pending.current,
-      error: active && !pending.current || value.error === refreshError ? "" : value.error }));
-  }, [clearTimer, handleDisconnect, refresh]);
+      setState((value) => ({
+        ...value,
+        status: event,
+        pending: pending.current,
+        error: (active && !pending.current) || value.error === refreshError ? "" : value.error,
+      }));
+    },
+    [clearTimer, handleDisconnect, refresh],
+  );
 
   useEffect(() => () => clearTimer(), [clearTimer]);
 
@@ -100,7 +116,12 @@ export function useSettings(visible: boolean) {
     const bonded = Boolean(status?.available && status.device_address && status.enabled !== false);
     const retentionAllowed = Boolean(status?.available && status.device_address);
 
-    if (setting === "retention" ? !retentionAllowed : !bonded || (setting === "ancs_content_enabled" && !status?.ancs_enabled)) return;
+    if (
+      setting === "retention"
+        ? !retentionAllowed
+        : !bonded || (setting === "ancs_content_enabled" && !status?.ancs_enabled)
+    )
+      return;
 
     if (status?.[setting] === undefined) return;
 
@@ -113,20 +134,29 @@ export function useSettings(visible: boolean) {
 
       pending.current = { ...attempt, phase: "uncertain" };
       timer.current = undefined;
-      setState((value) => ({ ...value, pending: pending.current,
-        error: "No confirmation from the host. Check its setting before retrying." }));
+      setState((value) => ({
+        ...value,
+        pending: pending.current,
+        error: "No confirmation from the host. Check its setting before retrying.",
+      }));
     }, timeoutMs);
     void sendDaemonCommand(command).catch(() => {
       if (pending.current !== attempt) return;
 
-      setState((value) => ({ ...value,
-        error: "Could not confirm the request reached the host. Wait for its status or check before retrying." }));
+      setState((value) => ({
+        ...value,
+        error:
+          "Could not confirm the request reached the host. " +
+          "Wait for its status or check before retrying.",
+      }));
     });
   };
 
   const toggle = (setting: ToggleSetting, enabled: boolean) => {
     const names: Record<ToggleSetting, "bt_set_ancs" | "bt_set_ancs_content" | "bt_set_calls"> = {
-      ancs_enabled: "bt_set_ancs", ancs_content_enabled: "bt_set_ancs_content", calls_enabled: "bt_set_calls",
+      ancs_enabled: "bt_set_ancs",
+      ancs_content_enabled: "bt_set_ancs_content",
+      calls_enabled: "bt_set_calls",
     };
 
     sendChange(setting, enabled, { command: names[setting], enabled });

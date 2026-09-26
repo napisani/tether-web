@@ -72,34 +72,34 @@ const pairedState: DevicesState = {
 function renderDevicesView({
   daemon = pairedDaemon,
   state = pairedState,
-  onPair = vi.fn(),
-  onScan = vi.fn(),
-  onUnpair = vi.fn(),
-  onConfirmPairing = vi.fn(),
-  onSetBluetoothEnabled = vi.fn(),
-  onSolicitPermissions = vi.fn(),
+  onPair = vi.fn<(address: string) => void>(),
+  onScan = vi.fn<() => void>(),
+  onUnpair = vi.fn<(address: string) => void>(),
+  onConfirmPairing = vi.fn<(accept: boolean) => void>(),
+  onSetBluetoothEnabled = vi.fn<(enabled: boolean) => void>(),
+  onSolicitPermissions = vi.fn<() => void>(),
   airpodsActions = {
-    connect: vi.fn(),
-    setManaged: vi.fn(),
-    setMode: vi.fn(),
-    setPause: vi.fn(),
-    setHandoff: vi.fn(),
+    connect: vi.fn<AirPodsActions["connect"]>(),
+    setManaged: vi.fn<AirPodsActions["setManaged"]>(),
+    setMode: vi.fn<AirPodsActions["setMode"]>(),
+    setPause: vi.fn<AirPodsActions["setPause"]>(),
+    setHandoff: vi.fn<AirPodsActions["setHandoff"]>(),
   },
   peerActions = {
-    discover: vi.fn(),
-    pair: vi.fn(),
-    accept: vi.fn(),
-    forget: vi.fn(),
+    discover: vi.fn<PeerActions["discover"]>(),
+    pair: vi.fn<PeerActions["pair"]>(),
+    accept: vi.fn<PeerActions["accept"]>(),
+    forget: vi.fn<PeerActions["forget"]>(),
   },
   fileTransfer = {
     state: { sentBytes: 0, totalBytes: 0, status: "idle" },
     batch: { total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false },
-    sendFiles: vi.fn(),
-    cancelBatch: vi.fn(),
-    sendFile: vi.fn(),
-    cancel: vi.fn(),
-    handleEvent: vi.fn(),
-    handleDisconnect: vi.fn(),
+    sendFiles: vi.fn<FileTransferActions["sendFiles"]>(),
+    cancelBatch: vi.fn<FileTransferActions["cancelBatch"]>(),
+    sendFile: vi.fn<FileTransferActions["sendFile"]>(),
+    cancel: vi.fn<FileTransferActions["cancel"]>(),
+    handleEvent: vi.fn<FileTransferActions["handleEvent"]>(),
+    handleDisconnect: vi.fn<FileTransferActions["handleDisconnect"]>(),
   },
 }: {
   daemon?: DaemonState;
@@ -124,7 +124,7 @@ function renderDevicesView({
       onConfirmPairing={onConfirmPairing}
       onSetBluetoothEnabled={onSetBluetoothEnabled}
       onSolicitPermissions={onSolicitPermissions}
-      onResetPairing={vi.fn()}
+      onResetPairing={() => {}}
       airpodsActions={airpodsActions}
       peerActions={peerActions}
       fileTransfer={fileTransfer}
@@ -134,28 +134,36 @@ function renderDevicesView({
 
 describe("guided pairing view", () => {
   it("shows current transport status and requires explicit code confirmation", () => {
-    const confirmPairing = vi.fn();
+    const confirmPairing = vi.fn<(accept: boolean) => void>();
     renderDevicesView({ onConfirmPairing: confirmPairing });
 
     expect(screen.getByRole("heading", { name: "Someone’s iPhone" })).toBeInTheDocument();
     expect(screen.getByText("Messages")).toBeInTheDocument();
     expect(screen.getByText("Notifications")).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Does your iPhone show this code?" })).toHaveTextContent("042731");
+    expect(
+      screen.getByRole("dialog", { name: "Does your iPhone show this code?" }),
+    ).toHaveTextContent("042731");
 
     fireEvent.click(screen.getByRole("button", { name: "Codes match" }));
     expect(confirmPairing).toHaveBeenCalledWith(true);
   });
 
   it("shows one scan action and groups live services by Bluetooth link", () => {
-    const scan = vi.fn();
+    const scan = vi.fn<() => void>();
     renderDevicesView({ state: { ...pairedState, pairing: { phase: "idle" } }, onScan: scan });
 
     expect(screen.getByRole("button", { name: "Scan for devices" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Scan for devices" }));
     expect(scan).toHaveBeenCalledOnce();
 
-    const classic = screen.getByRole("heading", { name: "Classic Bluetooth" }).closest(".status-channel");
-    const lowEnergy = screen.getByRole("heading", { name: "Low Energy" }).closest(".status-channel");
+    const classic = screen
+      .getByRole("heading", { name: "Classic Bluetooth" })
+      .closest(".status-channel");
+
+    const lowEnergy = screen
+      .getByRole("heading", { name: "Low Energy" })
+      .closest(".status-channel");
+
     expect(classic?.textContent).toContain("Messages");
     expect(classic?.textContent).toContain("Contacts");
     expect(lowEnergy?.textContent).toContain("Notifications");
@@ -167,20 +175,28 @@ describe("guided pairing view", () => {
       state: {
         ...pairedState,
         bluetooth: { ...pairedState.bluetooth!, ancs_enabled: false },
-        connection: { ...pairedState.connection!, map_open: false, map_error: "no_record",
-          pbap_open: false, pbap_error: "unrecognized_code", ancs_ready: false },
+        connection: {
+          ...pairedState.connection!,
+          map_open: false,
+          map_error: "no_record",
+          pbap_open: false,
+          pbap_error: "unrecognized_code",
+          ancs_ready: false,
+        },
         pairing: { phase: "idle" },
       },
     });
 
-    expect(screen.getByText("The iPhone is not advertising messages. Check Bluetooth permissions.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The iPhone is not advertising messages. Check Bluetooth permissions."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Contacts unavailable. Check Bluetooth settings.")).toBeInTheDocument();
     expect(screen.getByText("Turn on mirroring in Settings.")).toBeInTheDocument();
     expect(screen.queryByText("unrecognized_code")).not.toBeInTheDocument();
   });
 
   it("traps dialog focus, handles Escape, and keeps DOM focus order", () => {
-    const confirmPairing = vi.fn();
+    const confirmPairing = vi.fn<(accept: boolean) => void>();
     renderDevicesView({ onConfirmPairing: confirmPairing });
 
     const dialog = screen.getByRole("dialog", { name: "Does your iPhone show this code?" });
@@ -196,9 +212,9 @@ describe("guided pairing view", () => {
   });
 
   it("shows Bluetooth setup, connection control, and permission solicitation", () => {
-    const setEnabled = vi.fn();
-    const solicit = vi.fn();
-    const writeText = vi.fn().mockResolvedValue(undefined);
+    const setEnabled = vi.fn<(enabled: boolean) => void>();
+    const solicit = vi.fn<() => void>();
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     renderDevicesView({
       state: {
@@ -210,10 +226,12 @@ describe("guided pairing view", () => {
           capability: {
             mode: "compatibility",
             reasons: ["The adapter cannot advertise as a peripheral."],
-            setup: [{
-              what: "Enable BlueZ experimental mode, then restart Bluetooth.",
-              command: "sudo systemctl restart bluetooth",
-            }],
+            setup: [
+              {
+                what: "Enable BlueZ experimental mode, then restart Bluetooth.",
+                command: "sudo systemctl restart bluetooth",
+              },
+            ],
           },
         },
         connection: {
@@ -229,7 +247,9 @@ describe("guided pairing view", () => {
       onSolicitPermissions: solicit,
     });
 
-    expect(screen.getByText("Compatibility mode — messages and contacts, no notification mirroring.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Compatibility mode — messages and contacts, no notification mirroring."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Bluetooth setup needed" })).toBeInTheDocument();
     expect(screen.getByText("The adapter cannot advertise as a peripheral.")).toBeInTheDocument();
     expect(screen.getByText("Allow messages in iPhone Bluetooth settings.")).toBeInTheDocument();
@@ -261,7 +281,10 @@ describe("guided pairing view", () => {
     renderDevicesView({
       daemon: {
         ...pairedDaemon,
-        protocol: { ...pairedDaemon.protocol!, capabilities: ["bluetooth.pairing", "bluetooth.connection"] },
+        protocol: {
+          ...pairedDaemon.protocol!,
+          capabilities: ["bluetooth.pairing", "bluetooth.connection"],
+        },
       },
       state: unavailableState,
     });
@@ -269,12 +292,14 @@ describe("guided pairing view", () => {
     expect(screen.getByText("Bluetooth is unavailable on this machine.")).toBeInTheDocument();
     expect(screen.getByText("BlueZ is not running.")).toBeInTheDocument();
     expect(screen.getByText("sudo systemctl start bluetooth")).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /Connect to this iPhone/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: /Connect to this iPhone/ }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Forget iPhone" })).not.toBeInTheDocument();
   });
 
   it("offers an Apple nearby advertisement as a possible iPhone", () => {
-    const pair = vi.fn();
+    const pair = vi.fn<(address: string) => void>();
 
     const candidate = {
       ...pairedState.devices[0],
@@ -342,7 +367,9 @@ describe("guided pairing view", () => {
     fireEvent.click(screen.getByRole("button", { name: /Second iPhoneReady to pair/ }));
 
     expect(screen.getByRole("heading", { name: "Second iPhone" })).toBeInTheDocument();
-    expect(screen.getByText("Classic Bluetooth").closest(".status-channel")).not.toHaveClass("connected");
+    expect(screen.getByText("Classic Bluetooth").closest(".status-channel")).not.toHaveClass(
+      "connected",
+    );
     expect(screen.getByText("Low Energy").closest(".status-channel")).not.toHaveClass("connected");
     expect(screen.getAllByText("Not supervised by Tether.")).toHaveLength(3);
     expect(screen.queryByText("Supervised phone diagnostic")).not.toBeInTheDocument();
@@ -357,13 +384,19 @@ describe("guided pairing view", () => {
     expect(screen.queryByRole("button", { name: "Scan for iPhones" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Scan for iPhone" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Forget iPhone" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /Connect to this iPhone/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Show iPhone Permissions" })).not.toBeInTheDocument();
-    expect(screen.getByText("This version of tetherd does not advertise browser pairing controls.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: /Connect to this iPhone/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Show iPhone Permissions" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("This version of tetherd does not advertise browser pairing controls."),
+    ).toBeInTheDocument();
   });
 
   it("requires confirmation before forgetting a bonded iPhone", () => {
-    const unpair = vi.fn();
+    const unpair = vi.fn<(address: string) => void>();
     renderDevicesView({ state: { ...pairedState, pairing: { phase: "idle" } }, onUnpair: unpair });
 
     fireEvent.click(screen.getByRole("button", { name: "Forget iPhone" }));
@@ -376,10 +409,10 @@ describe("guided pairing view", () => {
 
   it("pairs and trusts a nearby Wi-Fi peer", () => {
     const actions: PeerActions = {
-      discover: vi.fn(),
-      pair: vi.fn(),
-      accept: vi.fn(),
-      forget: vi.fn(),
+      discover: vi.fn<PeerActions["discover"]>(),
+      pair: vi.fn<PeerActions["pair"]>(),
+      accept: vi.fn<PeerActions["accept"]>(),
+      forget: vi.fn<PeerActions["forget"]>(),
     };
 
     const peer = {
@@ -393,7 +426,12 @@ describe("guided pairing view", () => {
     };
 
     renderDevicesView({
-      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
+      state: {
+        ...pairedState,
+        devices: [],
+        wifi: { ...pairedState.wifi, peers: [peer] },
+        pairing: { phase: "idle" },
+      },
       peerActions: actions,
     });
 
@@ -404,17 +442,17 @@ describe("guided pairing view", () => {
   });
 
   it("offers file selection and drop for a connected trusted peer", () => {
-    const sendFiles = vi.fn();
+    const sendFiles = vi.fn<FileTransferActions["sendFiles"]>();
 
     const fileTransfer: FileTransferActions = {
       state: { sentBytes: 0, totalBytes: 0, status: "idle" },
       batch: { total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false },
       sendFiles,
-      cancelBatch: vi.fn(),
-      sendFile: vi.fn(),
-      cancel: vi.fn(),
-      handleEvent: vi.fn(),
-      handleDisconnect: vi.fn(),
+      cancelBatch: vi.fn<FileTransferActions["cancelBatch"]>(),
+      sendFile: vi.fn<FileTransferActions["sendFile"]>(),
+      cancel: vi.fn<FileTransferActions["cancel"]>(),
+      handleEvent: vi.fn<FileTransferActions["handleEvent"]>(),
+      handleDisconnect: vi.fn<FileTransferActions["handleDisconnect"]>(),
     };
 
     const peer = {
@@ -432,7 +470,12 @@ describe("guided pairing view", () => {
         ...pairedDaemon,
         protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files"] },
       },
-      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
+      state: {
+        ...pairedState,
+        devices: [],
+        wifi: { ...pairedState.wifi, peers: [peer] },
+        pairing: { phase: "idle" },
+      },
       fileTransfer,
     });
 
@@ -442,27 +485,56 @@ describe("guided pairing view", () => {
     expect(sendFiles).toHaveBeenCalledWith([file], 0);
   });
 
-  it("describes clipboard support only when the daemon advertises it and the host can access it", () => {
-    const peer = { fingerprint: "peer-1", name: "Nearby phone", port: 5134, paired: true, connected: true, pending: false };
+  it("describes clipboard support only when advertised and accessible", () => {
+    const peer = {
+      fingerprint: "peer-1",
+      name: "Nearby phone",
+      port: 5134,
+      paired: true,
+      connected: true,
+      pending: false,
+    };
+
     renderDevicesView({
       daemon: { ...pairedDaemon, protocol: { ...pairedDaemon.protocol!, capabilities: ["peers"] } },
-      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer], clipboardAvailable: true }, pairing: { phase: "idle" } },
+      state: {
+        ...pairedState,
+        devices: [],
+        wifi: { ...pairedState.wifi, peers: [peer], clipboardAvailable: true },
+        pairing: { phase: "idle" },
+      },
     });
     expect(screen.getByText(/does not advertise clipboard sync/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send Clipboard" })).not.toBeInTheDocument();
   });
 
   it("reports host clipboard unavailability even when the daemon advertises support", () => {
-    const peer = { fingerprint: "peer-1", name: "Nearby phone", port: 5134, paired: true, connected: true, pending: false };
+    const peer = {
+      fingerprint: "peer-1",
+      name: "Nearby phone",
+      port: 5134,
+      paired: true,
+      connected: true,
+      pending: false,
+    };
+
     renderDevicesView({
-      daemon: { ...pairedDaemon, protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "clipboard"] } },
-      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer], clipboardAvailable: false }, pairing: { phase: "idle" } },
+      daemon: {
+        ...pairedDaemon,
+        protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "clipboard"] },
+      },
+      state: {
+        ...pairedState,
+        devices: [],
+        wifi: { ...pairedState.wifi, peers: [peer], clipboardAvailable: false },
+        pairing: { phase: "idle" },
+      },
     });
     expect(screen.getByText(/host compositor has no clipboard access/)).toBeInTheDocument();
   });
 
   it("labels file progress and offers cancellation only while staging", () => {
-    const cancel = vi.fn();
+    const cancel = vi.fn<FileTransferActions["cancel"]>();
 
     const peer = {
       fingerprint: "peer-1",
@@ -479,16 +551,35 @@ describe("guided pairing view", () => {
         ...pairedDaemon,
         protocol: { ...pairedDaemon.protocol!, capabilities: ["peers", "files"] },
       },
-      state: { ...pairedState, devices: [], wifi: { ...pairedState.wifi, peers: [peer] }, pairing: { phase: "idle" } },
+      state: {
+        ...pairedState,
+        devices: [],
+        wifi: { ...pairedState.wifi, peers: [peer] },
+        pairing: { phase: "idle" },
+      },
       fileTransfer: {
-        state: { operationId: "upload-1", filename: "notes.txt", sentBytes: 24, totalBytes: 48, status: "uploading" },
-        batch: { total: 0, completed: 0, sent: 0, failed: 0, skipped: 0, pending: 0, active: false },
-        sendFiles: vi.fn(),
-        cancelBatch: vi.fn(),
-        sendFile: vi.fn(),
+        state: {
+          operationId: "upload-1",
+          filename: "notes.txt",
+          sentBytes: 24,
+          totalBytes: 48,
+          status: "uploading",
+        },
+        batch: {
+          total: 0,
+          completed: 0,
+          sent: 0,
+          failed: 0,
+          skipped: 0,
+          pending: 0,
+          active: false,
+        },
+        sendFiles: vi.fn<FileTransferActions["sendFiles"]>(),
+        cancelBatch: vi.fn<FileTransferActions["cancelBatch"]>(),
+        sendFile: vi.fn<FileTransferActions["sendFile"]>(),
         cancel,
-        handleEvent: vi.fn(),
-        handleDisconnect: vi.fn(),
+        handleEvent: vi.fn<FileTransferActions["handleEvent"]>(),
+        handleDisconnect: vi.fn<FileTransferActions["handleDisconnect"]>(),
       },
     });
 
@@ -498,12 +589,15 @@ describe("guided pairing view", () => {
   });
 
   it("shows live AirPods controls with GTK-aligned gating", () => {
+    const connect = vi.fn<AirPodsActions["connect"]>();
+    const setMode = vi.fn<AirPodsActions["setMode"]>();
+
     const actions: AirPodsActions = {
-      connect: vi.fn(),
-      setManaged: vi.fn(),
-      setMode: vi.fn(),
-      setPause: vi.fn(),
-      setHandoff: vi.fn(),
+      connect,
+      setManaged: vi.fn<AirPodsActions["setManaged"]>(),
+      setMode,
+      setPause: vi.fn<AirPodsActions["setPause"]>(),
+      setHandoff: vi.fn<AirPodsActions["setHandoff"]>(),
     };
 
     const airpods = {
@@ -551,11 +645,14 @@ describe("guided pairing view", () => {
     expect(screen.getByRole("heading", { name: "AirPods Pro" })).toBeInTheDocument();
     expect(screen.getByText("Left earbud 82% · Right earbud 79% · Case 45%")).toBeInTheDocument();
     expect(screen.getByText("One bud is in.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Transparency" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Transparency" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Noise Cancellation" }));
-    expect(actions.setMode).toHaveBeenCalledWith("anc");
+    expect(setMode).toHaveBeenCalledWith("anc");
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
-    expect(actions.connect).toHaveBeenCalledWith(airpods.address, false);
+    expect(connect).toHaveBeenCalledWith(airpods.address, false);
   });
 });

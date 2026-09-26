@@ -32,12 +32,15 @@ export function reduceAppState(state: AppState, action: AppAction): AppState {
     return {
       ...state,
       daemon: { ...state.daemon, connected: action.connected },
-      devices: action.connected ? state.devices : reduceDevicesState(state.devices, { type: "daemon-disconnected" }),
+      devices: action.connected
+        ? state.devices
+        : reduceDevicesState(state.devices, { type: "daemon-disconnected" }),
     };
   }
 
   if (action.type === "daemon-event") {
-    const disconnected = action.event.command === "gateway_status" && !action.event.daemon_connected;
+    const disconnected =
+      action.event.command === "gateway_status" && !action.event.daemon_connected;
 
     return {
       daemon: reduceDaemonEvent(state.daemon, action.event),

@@ -21,7 +21,9 @@ export function ModalDialog({
   const dialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const previous =
+      document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+
     const dialog = dialogRef.current;
     const first = dialog?.querySelector<HTMLElement>(focusableSelector);
     (first || dialog)?.focus();
@@ -39,7 +41,9 @@ export function ModalDialog({
 
     if (event.key !== "Tab") return;
 
-    const controls = [...(dialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector) || [])];
+    const controls = [
+      ...(dialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector) || []),
+    ];
 
     if (controls.length === 0) {
       event.preventDefault();

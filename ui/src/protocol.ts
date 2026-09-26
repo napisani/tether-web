@@ -8,7 +8,10 @@ export type DaemonCommand = ParsedDaemonCommand;
 
 type EventFor<Command extends DaemonEvent["command"]> = Extract<DaemonEvent, { command: Command }>;
 
-type CommandFor<Command extends DaemonCommand["command"]> = Extract<DaemonCommand, { command: Command }>;
+type CommandFor<Command extends DaemonCommand["command"]> = Extract<
+  DaemonCommand,
+  { command: Command }
+>;
 
 export type ProtocolInfoEvent = EventFor<"protocol_info">;
 
@@ -34,7 +37,11 @@ export type BluetoothUnpairResultEvent = EventFor<"bt_unpair_result">;
 
 export type BluetoothSolicitResultEvent = EventFor<"bt_solicit_result">;
 
-export type BluetoothResultEvent = BluetoothScanResultEvent | BluetoothPairResultEvent | BluetoothUnpairResultEvent | BluetoothSolicitResultEvent;
+export type BluetoothResultEvent =
+  | BluetoothScanResultEvent
+  | BluetoothPairResultEvent
+  | BluetoothUnpairResultEvent
+  | BluetoothSolicitResultEvent;
 
 export type BluetoothPairingProgressEvent = EventFor<"bt_pair_progress">;
 
@@ -66,7 +73,13 @@ export type PeerAcceptedEvent = EventFor<"pair_accepted">;
 
 export type ForgetPeerResultEvent = EventFor<"forget_device_result">;
 
-export type PeerLifecycleEvent = PeerConnectionEvent | PeerRequestEvent | PeerOutboundPendingEvent | PeerRejectedEvent | PeerAcceptedEvent | ForgetPeerResultEvent;
+export type PeerLifecycleEvent =
+  | PeerConnectionEvent
+  | PeerRequestEvent
+  | PeerOutboundPendingEvent
+  | PeerRejectedEvent
+  | PeerAcceptedEvent
+  | ForgetPeerResultEvent;
 
 export type FileSendCompleteEvent = EventFor<"file_send_complete">;
 
@@ -164,7 +177,9 @@ export type DismissNotificationCommand = CommandFor<"bt_notification_action">;
 
 export type ProtocolInfoCommand = CommandFor<"protocol_info">;
 
-export type BluetoothSetAncsCommand = CommandFor<"bt_set_ancs" | "bt_set_ancs_content" | "bt_set_calls">;
+export type BluetoothSetAncsCommand = CommandFor<
+  "bt_set_ancs" | "bt_set_ancs_content" | "bt_set_calls"
+>;
 
 export type BluetoothSetRetentionCommand = CommandFor<"bt_set_retention">;
 
