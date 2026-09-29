@@ -8,21 +8,9 @@ A browser client for [Tether](https://github.com/zackb/tether), the Linux compan
 
 ## Current scope
 
-The web client provides the Devices view's guided Bluetooth flow:
-
-- discover a possible iPhone from its Apple Nearby advertisement;
-- compare and explicitly confirm the Bluetooth pairing code;
-- display Classic, Low Energy, MAP, PBAP, and ANCS status;
-- show host setup commands, control Bluetooth supervision, and ask the iPhone to re-offer permissions;
-- forget an existing Bluetooth pairing;
-- recover pairing state after browser or daemon reconnects;
-- manage AirPods connection, battery and in-ear state, listening mode, pause-on-removal, and call handoff; and
-- discover, approve, connect, and forget Tether peers over Wi-Fi; and
-- send files to a connected trusted peer from a file picker or drop zone.
+The web client covers the GTK app's Devices, Messages, Notifications, Contacts, Calls, and Settings views, including Bluetooth pairing, Wi-Fi peers, file sending, and AirPods controls. It is not yet validated as a replacement for GTK on physical phones. [docs/UI_PARITY.md](docs/UI_PARITY.md) describes the status of each view. [future-features.md](future-features.md) lists upstream Tether features the web client does not yet support.
 
 ![The pairing security check asking whether the iPhone shows the same six-digit code](docs/img/numeric-confirmation.png)
-
-The web client also offers Messages (conversation search, drafts, sending, and read state), Notifications (ANCS list and dismissal), Calls (live HFP call control, dialing, and daemon-host audio routing), and Contacts (search, phone/email details, and message handoff). Confirmed Messages sending requires the upstream optional message-send operation ID; uncorrelated results never clear a browser draft. Calls never stream audio to the browser. Settings manages daemon-global ANCS mirroring/content, call control, and storage retention, while clearly identifying headless desktop-only controls. The app also keeps an unread Messages badge current while another view is open, supports browser-safe navigation/compose/search shortcuts, and offers separate opt-in, content-free browser alerts for live iPhone notifications while the tab is hidden. Browser alert consent is saved locally; it is not the host desktop-popup setting. This is not yet a verified physical-phone replacement for GTK: PBAP, ANCS, and HFP still need hardware validation, and Send Clipboard remains deferred. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
 
 ![The Settings view with browser alerts, Bluetooth, and host notification mirroring controls](docs/img/settings.png)
 
