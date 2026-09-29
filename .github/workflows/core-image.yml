@@ -1,0 +1,136 @@
+name: Core image
+
+# Upstream Tether documents its container as local-build only, so this
+# workflow publishes an unofficial image from an unmodified upstream release.
+# Release steps and recovery: docs/RELEASING.md
+on:
+  workflow_dispatch:
+    inputs:
+      tether_tag:
+        description: zackb/tether release tag to build (v0.2.35 or newer)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-image-${{ inputs.tether_tag }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: zackb/tether
+  IMAGE: ghcr.io/${{ github.repository_owner }}/tether-core
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      revision: ${{ steps.tag.outputs.revision }}
+      latest: ${{ steps.tag.outputs.latest }}
+    steps:
+      - id: tag
+        env:
+          TAG: ${{ inputs.tether_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not an upstream vMAJOR.MINOR.PATCH release tag"
+            exit 1
+          fi
+          version="${TAG#v}"
+          # 0.2.35 is the first release with the protocol additions tether-web requires.
+          if [ "$(printf '%s\n' 0.2.35 "$version" | sort -V | head -1)" != 0.2.35 ]; then
+            echo "::error::tether-web requires Tether 0.2.35 or newer"
+            exit 1
+          fi
+          refs=$(git ls-remote "https://github.com/$UPSTREAM.git" "refs/tags/$TAG" "refs/tags/$TAG^{}")
+          revision=$(awk -v peeled="refs/tags/$TAG^{}" '$2 == peeled { print $1 }' <<<"$refs")
+          revision=${revision:-$(awk '{ print $1; exit }' <<<"$refs")}
+          if [ -z "$revision" ]; then
+            echo "::error::$TAG does not exist in $UPSTREAM"
+            exit 1
+          fi
+          latest_tag=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name)
+          {
+            echo "version=$version"
+            echo "revision=$revision"
+            echo "latest=$([ "$latest_tag" = "$TAG" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    # Native runners: the C++ build and upstream smoke test are impractical under emulation.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      REVISION: ${{ needs.resolve.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM }}
+          ref: ${{ needs.resolve.outputs.revision }}
+          persist-credentials: false
+      - name: Build and run upstream tests
+        run: |
+          docker build --progress=plain --build-arg TETHER_VERSION="$VERSION" \
+            --target test -f packaging/container/Dockerfile -t tether-tests:ci .
+      - name: Build runtime
+        run: |
+          docker build --progress=plain --build-arg TETHER_VERSION="$VERSION" \
+            --label org.opencontainers.image.title=tether-core \
+            --label "org.opencontainers.image.description=Unofficial build of $UPSTREAM $VERSION for tether-web" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.url=https://github.com/$UPSTREAM" \
+            --label org.opencontainers.image.licenses=MIT \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$REVISION" \
+            --target runtime -f packaging/container/Dockerfile -t tether-runtime:ci .
+      - name: Upstream smoke test
+        run: scripts/test-container.sh tether-runtime:ci tether-tests:ci
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the tested image
+        run: |
+          docker tag tether-runtime:ci "$IMAGE:$VERSION-${{ matrix.arch }}"
+          docker push "$IMAGE:$VERSION-${{ matrix.arch }}"
+
+  publish:
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      LATEST: ${{ needs.resolve.outputs.latest }}
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create multi-arch tags
+        run: |
+          tags=(-t "$IMAGE:$VERSION")
+          if [ "$LATEST" = true ]; then tags+=(-t "$IMAGE:latest"); fi
+          docker buildx imagetools create "${tags[@]}" \
+            --annotation "index:org.opencontainers.image.description=Unofficial build of $UPSTREAM $VERSION for tether-web" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          docker buildx imagetools inspect "$IMAGE:$VERSION"

@@ -1,6 +1,6 @@
 # Run Tether core and tether-web with Docker Compose
 
-This is a **local-build example for one Linux host**, not a published image or a second implementation of Tether. Compose builds `tetherd` from a separate Tether checkout and `tether-web` from this repository, then runs them as two non-root containers with one shared private runtime directory. The daemon owns Bluetooth, Wi-Fi peer behavior and persistent data; the web process only serves the UI, forwards commands/events and stages browser uploads. No container automatically pairs a phone.
+This is an **example for one Linux host**, not a second implementation of Tether. By default Compose pulls two published images, `tetherd` and `tether-web`, and runs them as two non-root containers with one shared private runtime directory. You can build both images locally instead. The daemon owns Bluetooth, Wi-Fi peer behavior and persistent data; the web process only serves the UI, forwards commands/events and stages browser uploads. No container automatically pairs a phone.
 
 The example has not been validated against every Linux Bluetooth adapter or iPhone. A healthy container and `/readyz` prove only that the processes and Unix socket are connected. See [Tether's container guide](https://github.com/zackb/tether/blob/main/docs/CONTAINER.md) for host prerequisites and hardware acceptance checks; the browser is still [experimental](../docs/UI_PARITY.md).
 
@@ -21,21 +21,28 @@ sudo btmgmt info
 
 The core container mounts `/run/dbus` read-only, but D-Bus calls can still **change host state**. Use an existing non-root host UID/GID authorized by the host's D-Bus policy. Do not switch to `privileged: true`, broad device mounts, or unrestricted D-Bus policy to bypass a permission failure.
 
-## 2. Get a compatible Tether core checkout
+## 2. Choose published or locally built images
 
-The web client's pairing and send-result correlation need a compatible daemon. At the time this example was written, [Tether PR #214](https://github.com/zackb/tether/pull/214) was not merged upstream; the example below pins its tested fork revision. If you use a newer upstream revision, verify its `protocol_info`, pairing operation IDs, `apple_nearby`, and optional `send_file`/`bt_send_message` result IDs before switching. **Do not replace another Tether checkout or reset its state.**
+The web client's pairing and send-result correlation need Tether **0.2.35 or newer**.
 
-From the `tether-web` repository root, clone into a separate directory outside this repository:
+**Published images (default).** Nothing to build:
+
+| Image | Contents |
+| --- | --- |
+| `ghcr.io/napisani/tether-core:<version>` | An **unofficial** build of an unmodified [zackb/tether](https://github.com/zackb/tether) release, made from upstream's own `packaging/container/Dockerfile` after upstream's container tests and smoke test pass. Upstream itself publishes no registry image. The tag is the upstream version; the `org.opencontainers.image.revision` label is the upstream commit. |
+| `ghcr.io/napisani/tether-web:<version>` | A [tether-web release](https://github.com/napisani/tether-web/releases). |
+
+Both are available for amd64 and arm64. Pin exact tags with `TETHER_CORE_TAG` and `TETHER_WEB_TAG` in step 4.
+
+**Local builds.** Clone the Tether release into a separate directory outside this repository. **Do not replace another Tether checkout or reset its state.**
 
 ```sh
 mkdir -p "$HOME/src"
-git clone --branch pr/message-send-correlation --single-branch \
-  https://github.com/napisani/tether.git "$HOME/src/tether-core"
-git -C "$HOME/src/tether-core" switch --detach \
-  a7eba88b2ec8ec490197b32bd7f9c90018a52fed
+git clone --branch v0.2.35 --depth 1 \
+  https://github.com/zackb/tether.git "$HOME/src/tether-core"
 ```
 
-The core checkout must contain `packaging/container/Dockerfile` and `packaging/container/entrypoint.sh`. Compose's `TETHER_CORE_DIR` points to this checkout; its build context is **not** the web repository. The web image builds from the parent of this `deploy/` directory.
+`TETHER_CORE_DIR` points to this checkout, which is the core build context; the web image builds from the parent of this `deploy/` directory. The build settings live in `deploy/docker-compose.build.yml`, layered on the base file in step 5.
 
 ## 3. Prepare private host paths
 
@@ -89,7 +96,7 @@ ${EDITOR:-vi} deploy/.env
 
 | Setting | How to choose it |
 | --- | --- |
-| `TETHER_CORE_DIR` | Absolute path to the pinned core checkout from step 2. |
+| `TETHER_CORE_TAG`, `TETHER_WEB_TAG` | Published image tags from step 2. Pin exact versions; back up `/data` before changing the core tag. |
 | `TETHER_UID`, `TETHER_GID` | Your non-root `id -u` / `id -g`; **the same identity in both containers**. |
 | `TETHER_DATA_DIR`, `TETHER_DOWNLOADS_DIR` | Absolute, pre-created directories from step 3. Keep their backups private. |
 | `TETHER_RUNTIME_DIR` | Absolute `/run/tether-compose-<uid>` path from step 3; the *same bind mount* in both containers. |
@@ -98,18 +105,34 @@ ${EDITOR:-vi} deploy/.env
 | `TETHER_HOSTNAME` | DNS-style display name for the core, e.g. `tether`; the stored certificate, not the label, is its identity. |
 | `TETHER_WEB_AUTH_USER` | Username for the browser's HTTP Basic prompt. |
 | `TETHER_WEB_ALLOWED_HOSTS` | `localhost,127.0.0.1` for the local example; add the exact Host name of an HTTPS reverse proxy if used. |
-| `TETHER_VERSION` | Optional local build label; it does not select the core Git revision. |
+| `TETHER_CORE_DIR` | Local builds only: absolute path to the core checkout from step 2. |
+| `TETHER_VERSION` | Local builds only: core version label; it does not select the core Git revision. |
+| `TETHER_WEB_VERSION` | Local builds only: web version label; `make version` prints the value for this checkout. |
 
 Compose binds the web port to **127.0.0.1:5135 on the host**. Inside its container the gateway listens on `0.0.0.0:5135` so Docker's port mapping works; wildcard listening requires both the Host allowlist and Basic credentials. Health endpoints are intentionally unauthenticated, but UI, state, events and commands require credentials. Do not publish the port on all interfaces or send Basic credentials over plain HTTP on a network. For remote browser access, terminate HTTPS at a trusted reverse proxy on this host, proxy to `127.0.0.1:5135`, and add its public Host name to `TETHER_WEB_ALLOWED_HOSTS`. All authenticated tabs share one daemon's privileges; this is not multi-user access control.
 
-## 5. Validate, build, start
+## 5. Validate, pull or build, start
 
-Run these commands from the **tether-web repository root** in the same shell. The `compose` function just avoids repeating the file and environment arguments:
+Run these commands from the **tether-web repository root** in the same shell. The `compose` function just avoids repeating the file and environment arguments. For published images:
 
 ```sh
 compose() { docker compose --env-file deploy/.env -f deploy/docker-compose.yml "$@"; }
 compose config -q                # Fail early on missing variables or invalid YAML.
+compose pull tether tether-web    # Pulls the pinned published images.
+```
+
+For local builds, layer the build file instead:
+
+```sh
+compose() { docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+  -f deploy/docker-compose.build.yml "$@"; }
+compose config -q
 compose build tether tether-web   # Builds both local images; no registry push.
+```
+
+Then start either way:
+
+```sh
 compose up -d --no-build          # Waits for core health before starting web.
 compose ps
 compose logs --tail=80 tether tether-web
@@ -144,6 +167,7 @@ compose down                   # Stops containers; does not erase host bind moun
 - **Core unhealthy / `/readyz` returns 503:** inspect `compose logs tether tether-web` and confirm `tether/tetherd.sock` can be created inside the shared runtime. `/healthz` alone is insufficient.
 - **401 or rejected Host:** check the Basic username, file ownership/mode and `TETHER_WEB_ALLOWED_HOSTS`. The gateway rejects invalid credentials or unlisted reverse-proxy Host names; do not weaken auth to test it remotely.
 - **No Wi-Fi peer or Bluetooth feature:** inspect host Avahi, LAN firewall, BlueZ mode, adapter class, controller support and iPhone permissions using Tether's linked guides. A container build cannot establish hardware parity.
+- **Upgrade:** read the upstream and web release notes, stop the core and back up `/data` (below), change `TETHER_CORE_TAG` or `TETHER_WEB_TAG` (or rebuild from a newer checkout), then pull and `compose up -d --no-build`.
 - **Reboot fails to restart:** ensure `/run/tether-compose-<uid>` is created by the boot-time rule before Docker starts the services. Do not persist a stale Unix socket by moving runtime into `/data`.
 
 Stop the core before backing up `/data` and `/downloads`, preserving ownership and permissions. The core's TLS identity and encrypted history key live under `/data`; restoring only part of that directory can break trust/history. Bluetooth bonds are stored separately by host BlueZ. **Never delete the host data, bonds or trust just to rerun this example.**

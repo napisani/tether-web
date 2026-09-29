@@ -1,0 +1,20 @@
+# Build both images locally instead of pulling them. Layer after the base file:
+# docker compose --env-file deploy/.env -f deploy/docker-compose.yml \
+#   -f deploy/docker-compose.build.yml build
+services:
+  tether:
+    image: tether-core:local
+    build:
+      context: ${TETHER_CORE_DIR:?Set an absolute path to the pinned Tether core checkout}
+      dockerfile: packaging/container/Dockerfile
+      target: runtime
+      args:
+        TETHER_VERSION: ${TETHER_VERSION:-0.2.35}
+
+  tether-web:
+    image: tether-web:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${TETHER_WEB_VERSION:-0.0.0-dev}

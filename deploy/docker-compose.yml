@@ -1,15 +1,11 @@
-# Run from the tether-web repository root with:
-# docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
+# Run from the tether-web repository root with published images:
+# docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d
+# To build both images locally instead, add -f deploy/docker-compose.build.yml.
 # Both containers must use the SAME host UID/GID and shared runtime directory.
 services:
   tether:
-    image: tether-core:local
-    build:
-      context: ${TETHER_CORE_DIR:?Set an absolute path to the pinned Tether core checkout}
-      dockerfile: packaging/container/Dockerfile
-      target: runtime
-      args:
-        TETHER_VERSION: ${TETHER_VERSION:-0.2.32-container-dev}
+    # Unofficial build of an unmodified zackb/tether release; see .github/workflows/core-image.yml.
+    image: ghcr.io/napisani/tether-core:${TETHER_CORE_TAG:-0.2.35}
     hostname: ${TETHER_HOSTNAME:-tether}
     user: "${TETHER_UID:?Set your non-root host UID}:${TETHER_GID:?Set your host GID}"
     network_mode: host # Tether peer discovery and the existing 5134/tcp listener
@@ -52,10 +48,7 @@ services:
         max-file: "3"
 
   tether-web:
-    image: tether-web:local
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ghcr.io/napisani/tether-web:${TETHER_WEB_TAG:-latest}
     user: "${TETHER_UID:?Set your non-root host UID}:${TETHER_GID:?Set your host GID}"
     read_only: true
     cap_drop: [ALL]
