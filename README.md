@@ -24,7 +24,7 @@ The web client also offers Messages (conversation search, drafts, sending, and r
 
 ## Requirements
 
-- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and optional `operation_id` correlation on `send_file` and `bt_send_message`. Both correlations are present at the tip of the stacked core branch.
+- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and optional `operation_id` correlation on `send_file` and `bt_send_message`. Tether 0.2.35 and newer provide all of these.
 - Read/write access to the `tetherd` Unix socket.
 - Node.js 24 and Go 1.24 to build from source.
 
@@ -55,9 +55,9 @@ npm run dev
 
 ## Container
 
-For a complete **two-container Docker Compose deployment**, including building Tether core from a separate checkout, preparing host paths and credentials, and starting both services, follow [deploy/README.md](deploy/README.md) and its [Compose example](deploy/docker-compose.yml). The steps below run only the web image alongside an already-running daemon.
+For a complete **two-container Docker Compose deployment**, including pre-built or locally built images, preparing host paths and credentials, and starting both services, follow [deploy/README.md](deploy/README.md) and its [Compose example](deploy/docker-compose.yml). The steps below run only the web image alongside an already-running daemon.
 
-The image contains only the static Go gateway and embedded browser assets. It does not include `tetherd`.
+The image contains only the static Go gateway and embedded browser assets. It does not include `tetherd`. Each release is published as `ghcr.io/napisani/tether-web:<version>` for amd64 and arm64; use that name in place of `tether-web` below to skip the build.
 
 ```bash
 docker build -t tether-web .
@@ -109,6 +109,10 @@ The UI vendors the generic rules from [dmmulroy/anti-slop](https://github.com/dm
 Runtime protocol validation is centralized in `ui/src/protocolSchemas.ts` using Zod. It validates daemon SSE events and outgoing commands; the Go gateway remains responsible for its own HTTP/Unix-socket JSON framing.
 
 The gateway intentionally treats daemon JSON as transport data. New features should use commands and events from the upstream [`zackb/tether`](https://github.com/zackb/tether) daemon rather than feature-specific Go HTTP routes. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Versioning and releases
+
+tether-web follows [Semantic Versioning](https://semver.org/) independently of Tether core. Pushing a `vMAJOR.MINOR.PATCH` tag on `main` publishes `ghcr.io/napisani/tether-web` and a GitHub Release. A manual workflow publishes `ghcr.io/napisani/tether-core`, an unofficial image built from an unmodified upstream Tether release. `scripts/release-web.sh` and `scripts/publish-core-image.sh` run those releases by hand, and `make version` prints the version of the current checkout. See [docs/RELEASING.md](docs/RELEASING.md) for the versioning rules and release steps.
 
 ## License
 
