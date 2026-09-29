@@ -105,8 +105,8 @@ if platforms=$(image_platforms "$image:$next" 2>/dev/null) &&
   echo "Image platforms: $platforms"
   echo "Image reports:   $version"
 else
-  echo "warning: could not pull $image:$next. If this is the package's first release," \
-    "make it public (docs/RELEASING.md#one-time-setup), then retry:" \
+  echo "warning: could not pull $image:$next. If the registry refused the pull," \
+    "check its visibility (docs/RELEASING.md#one-time-setup), then retry:" \
     "docker run --rm $image:$next --version" >&2
 fi
 

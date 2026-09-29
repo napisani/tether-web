@@ -36,7 +36,7 @@ The minimum `tetherd` version is 0.2.35. When a change raises it, update the req
 
 ## One-time setup
 
-Make each package public after its first publish. GHCR creates new packages as private, so anonymous `docker pull` and the Compose example fail until you change this. On GitHub, open your profile's **Packages** tab, select `tether-web` or `tether-core`, and set the visibility to **Public** under **Package settings**. GitHub does not let you make a public package private again.
+Both packages already exist and are public. The workflows created them on the first releases, and GHCR gave them this public repository's visibility. If you ever publish a new package name and anonymous `docker pull` fails, open your profile's **Packages** tab, select the package, and set the visibility to **Public** under **Package settings**. GitHub does not let you make a public package private again.
 
 Check for tag names that already exist in your clone. A clone that has fetched from upstream Tether has upstream's tags (`v0.1.0` to `v0.1.8` and `v0.2.0` to `v0.2.34`) in the same namespace. None of them is part of this repository's history, but `git tag` refuses to reuse their names. Push only the one tag you create, never `git push --tags`, which would copy the upstream tags to this repository.
 

@@ -87,8 +87,8 @@ if platforms=$(image_platforms "$image:$version" 2>/dev/null); then
   echo "Platforms: $platforms"
   echo "Upstream commit: $revision"
 else
-  echo "warning: could not read $image:$version. If this is the package's first publish," \
-    "make it public (docs/RELEASING.md#one-time-setup), then check it with:" \
+  echo "warning: could not read $image:$version. If the registry refused the read," \
+    "check its visibility (docs/RELEASING.md#one-time-setup), then check it with:" \
     "docker buildx imagetools inspect $image:$version" >&2
 fi
 
