@@ -4,7 +4,7 @@ A browser client for [Tether](https://github.com/zackb/tether), the Linux compan
 
 `tether-web` connects to a local `tetherd` Unix socket. The Go service embeds the React application, forwards daemon commands, and publishes daemon events to browsers over server-sent events. Bluetooth behavior remains in `tetherd`.
 
-![A paired iPhone with live Bluetooth, message, contact, and notification status](docs/img/connected.png)
+![The Devices view with a paired iPhone, its Classic Bluetooth and Low Energy status, and connection controls](docs/img/connected.png)
 
 ## Current scope
 
@@ -20,7 +20,11 @@ The web client provides the Devices view's guided Bluetooth flow:
 - discover, approve, connect, and forget Tether peers over Wi-Fi; and
 - send files to a connected trusted peer from a file picker or drop zone.
 
+![The pairing security check asking whether the iPhone shows the same six-digit code](docs/img/numeric-confirmation.png)
+
 The web client also offers Messages (conversation search, drafts, sending, and read state), Notifications (ANCS list and dismissal), Calls (live HFP call control, dialing, and daemon-host audio routing), and Contacts (search, phone/email details, and message handoff). Confirmed Messages sending requires the upstream optional message-send operation ID; uncorrelated results never clear a browser draft. Calls never stream audio to the browser. Settings manages daemon-global ANCS mirroring/content, call control, and storage retention, while clearly identifying headless desktop-only controls. The app also keeps an unread Messages badge current while another view is open, supports browser-safe navigation/compose/search shortcuts, and offers separate opt-in, content-free browser alerts for live iPhone notifications while the tab is hidden. Browser alert consent is saved locally; it is not the host desktop-popup setting. This is not yet a verified physical-phone replacement for GTK: PBAP, ANCS, and HFP still need hardware validation, and Send Clipboard remains deferred. See [docs/UI_PARITY.md](docs/UI_PARITY.md).
+
+![The Settings view with browser alerts, Bluetooth, and host notification mirroring controls](docs/img/settings.png)
 
 ## Requirements
 
