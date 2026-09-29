@@ -114,6 +114,20 @@ describe("gateway event lifecycle", () => {
     expect(events.closed).toBe(true);
   });
 
+  it("shows the web client version beside the running tetherd version", () => {
+    const { container } = render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+    const label = () => container.querySelector(".route-status-bar .version")?.textContent;
+
+    expect(label()).toBe(`Tether web ${__TETHER_WEB_VERSION__}`);
+
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "bt_status", available: true, version: "0.2.35" });
+    });
+    expect(label()).toBe(`Tether 0.2.35 · web ${__TETHER_WEB_VERSION__}`);
+  });
+
   it("hides Settings controls without daemon capability across reconnects", () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
     render(<TetherApp />);

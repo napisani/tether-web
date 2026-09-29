@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -24,7 +25,17 @@ import (
 //go:embed all:dist
 var embeddedAssets embed.FS
 
+// version is replaced at link time with -ldflags "-X main.version=...".
+var version = "0.0.0-dev"
+
 func main() {
+	printVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Parse()
+	if *printVersion {
+		fmt.Println("tether-web", version)
+		return
+	}
+
 	if err := run(); err != nil {
 		slog.Error("tether-web stopped", "error", err)
 		os.Exit(1)
@@ -77,7 +88,7 @@ func run() error {
 
 	serverErrors := make(chan error, 1)
 	go func() {
-		slog.Info("tether web listening", "address", listenAddress, "socket", socketPath)
+		slog.Info("tether web listening", "version", version, "address", listenAddress, "socket", socketPath)
 		serverErrors <- server.ListenAndServe()
 	}()
 

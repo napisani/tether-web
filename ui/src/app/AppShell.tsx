@@ -14,7 +14,7 @@ export function AppShell({
   phoneConnected,
   unreadCount,
   showCalls,
-  version,
+  daemonVersion,
 }: {
   children: ReactNode;
   route: AppRoute;
@@ -26,7 +26,7 @@ export function AppShell({
   phoneConnected: boolean;
   unreadCount: number;
   showCalls: boolean;
-  version?: string;
+  daemonVersion?: string;
 }) {
   const shell = useRef<HTMLDivElement>(null);
 
@@ -80,7 +80,7 @@ export function AppShell({
         wifiConnected={wifiConnected}
         wifiAvailable={wifiAvailable}
         phoneConnected={phoneConnected}
-        version={version}
+        daemonVersion={daemonVersion}
       />
     </div>
   );
@@ -250,14 +250,14 @@ function RouteStatusBar({
   wifiConnected,
   wifiAvailable,
   phoneConnected,
-  version,
+  daemonVersion,
 }: {
   daemonConnected: boolean;
   bluetoothAvailable: boolean;
   wifiConnected: boolean;
   wifiAvailable: boolean;
   phoneConnected: boolean;
-  version?: string;
+  daemonVersion?: string;
 }) {
   const statuses = [
     {
@@ -288,7 +288,12 @@ function RouteStatusBar({
         ? "Wi-Fi device connected"
         : "No device connected";
 
-  const versionLabel = version ? `Tether ${version}` : "Tether web";
+  // GTK shows one build version here; the browser client ships separately from tetherd.
+  const webVersion = `web ${__TETHER_WEB_VERSION__}`;
+
+  const versionLabel = daemonVersion
+    ? `Tether ${daemonVersion} · ${webVersion}`
+    : `Tether ${webVersion}`;
 
   return (
     <footer className="route-status-bar">

@@ -127,6 +127,9 @@ code. They are decisions to review, not implicit omissions.
   when more routes are offscreen, and a compact connection summary expands to
   the full daemon, Wi-Fi, and Bluetooth diagnostics. GTK scrollbars and status
   chrome follow the host's native theme instead.
+- GTK's route bar ends with its own build version, which ships with `tetherd`.
+  The web client is released separately, so its route bar shows the running
+  daemon version from `bt_status` beside the web build version.
 - Settings is a browser page instead of GTK's separate preferences window. Bluetooth
   supervision and permission recovery remain in Devices rather than duplicating
   their controls. ANCS mirroring (`bt_set_ancs`), notification text

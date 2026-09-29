@@ -148,7 +148,7 @@ export function TetherApp() {
       phoneConnected={phoneConnected}
       unreadCount={unreadMessageCount(state.daemon.connected, messages.state)}
       showCalls={showCalls}
-      version={state.devices.bluetooth?.version}
+      daemonVersion={state.devices.bluetooth?.version}
     >
       {route === "notifications" && (
         <NotificationsView
