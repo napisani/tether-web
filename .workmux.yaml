@@ -1,0 +1,12 @@
+# Workmux creates and opens worktrees for this project.
+main_branch: main
+base_branch: auto
+worktree_dir: ../tether-web__worktrees
+
+mode: session
+
+panes:
+  - command: nvim
+    focus: true
+  - command: <agent>
+    split: horizontal
