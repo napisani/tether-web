@@ -1,111 +1,147 @@
 # tether-web
 
-A browser client for [Tether](https://github.com/zackb/tether), the Linux companion for iPhone.
+A self-hosted web interface for [Tether](https://github.com/zackb/tether), the Linux companion for iPhone. Run it on your home server and use your iPhone's messages, calls, notifications, contacts and file transfer from any browser.
 
-`tether-web` connects to a local `tetherd` Unix socket. The Go service embeds the React application, forwards daemon commands, and publishes daemon events to browsers over server-sent events. Bluetooth behavior remains in `tetherd`.
+> [!WARNING]
+> tether-web is experimental and has not yet been validated as a replacement for the Tether GTK app on physical phones.
 
 ![The Devices view with a paired iPhone, its Classic Bluetooth and Low Energy status, and connection controls](docs/img/connected.png)
 
-## Current scope
+## Features
 
-The web client covers the GTK app's Devices, Messages, Notifications, Contacts, Calls, and Settings views, including Bluetooth pairing, Wi-Fi peers, file sending, and AirPods controls. It is not yet validated as a replacement for GTK on physical phones. [docs/UI_PARITY.md](docs/UI_PARITY.md) describes the status of each view. [future-features.md](future-features.md) lists upstream Tether features the web client does not yet support.
+- **Devices.** Pair an iPhone over Bluetooth, connect Wi-Fi peers, send files and control AirPods.
+- **Messages.** Search, read and reply to message threads, with per-thread drafts and contact suggestions.
+- **Notifications.** See and dismiss iPhone notifications, with optional browser alerts.
+- **Calls.** Dial, answer, decline and hang up calls, and switch audio between the host and the iPhone.
+- **Contacts.** Search the phone's address book and start a message thread from a contact.
+- **Settings.** Configure notification mirroring, call controls and message retention.
+- **Works on phones and desktops.** The layout adapts to small screens.
 
-![The pairing security check asking whether the iPhone shows the same six-digit code](docs/img/numeric-confirmation.png)
+[docs/UI_PARITY.md](docs/UI_PARITY.md) tracks each view against the GTK app. [future-features.md](future-features.md) lists upstream Tether features that tether-web does not support yet.
 
-![The Settings view with browser alerts, Bluetooth, and host notification mirroring controls](docs/img/settings.png)
+## How it works
+
+tether-web is a small Go server that embeds a React app. It talks to `tetherd`, Tether's daemon, over a Unix socket. `tetherd` handles Bluetooth, Wi-Fi peers and your data, so tether-web needs no Bluetooth access of its own.
+
+```text
+Browser  ──HTTPS──>  tether-web  ──Unix socket──>  tetherd  ──>  BlueZ  ──>  iPhone
+```
 
 ## Requirements
 
-- A running [`tetherd`](https://github.com/zackb/tether/tree/main/src/daemon) with `protocol_info`, Bluetooth pairing `operation_id` support, `apple_nearby`, and optional `operation_id` correlation on `send_file` and `bt_send_message`. Tether 0.2.35 and newer provide all of these.
-- Read/write access to the `tetherd` Unix socket.
-- Node.js 24 and Go 1.24 to build from source.
+- A Linux host with a working Bluetooth adapter, BlueZ and D-Bus. Wi-Fi peer discovery also needs Avahi.
+- [Tether](https://github.com/zackb/tether) 0.2.35 or newer.
+- Docker Engine with Compose (amd64 or arm64), or Go 1.24 and Node.js 24 to build from source.
 
-## Run locally
+Complete Tether's [Bluetooth host setup](https://github.com/zackb/tether/blob/main/docs/BLUETOOTH.md) before pairing a phone.
 
-Build the browser assets and gateway:
+## Install
 
-```bash
-make build
+### Docker Compose (recommended)
+
+The [Compose example](deploy/docker-compose.yml) runs `tetherd` and tether-web as two non-root containers that share a private runtime directory. Both images are published for amd64 and arm64:
+
+| Image | Contents |
+| --- | --- |
+| `ghcr.io/napisani/tether-web` | [tether-web releases](https://github.com/napisani/tether-web/releases) |
+| `ghcr.io/napisani/tether-core` | An unofficial build of an unmodified upstream Tether release. Upstream publishes no image. |
+
+Follow [deploy/README.md](deploy/README.md) to check the host, create the data directories and password file, and start both services. The short version, once `deploy/.env` is filled in:
+
+```sh
+compose() { docker compose --env-file deploy/.env -f deploy/docker-compose.yml "$@"; }
+compose pull
+compose up -d
 ```
 
-Start `tetherd`, then run:
+Then open <http://127.0.0.1:5135/> and sign in with the username and password you configured.
 
-```bash
-TETHER_SOCKET_PATH="${XDG_RUNTIME_DIR}/tether/tetherd.sock" \
-  ./bin/tether-web
-```
+### Docker, with an existing `tetherd`
 
-The default listener is `127.0.0.1:5135`.
+If `tetherd` already runs on the host, run only the web container and mount the directory that holds its socket. The password file must be readable by UID 1000 and contain at least 16 random bytes.
 
-For frontend development, keep the Go gateway running and start Vite in another terminal:
-
-```bash
-cd ui
-npm ci
-npm run dev
-```
-
-## Container
-
-For a complete **two-container Docker Compose deployment**, including pre-built or locally built images, preparing host paths and credentials, and starting both services, follow [deploy/README.md](deploy/README.md) and its [Compose example](deploy/docker-compose.yml). The steps below run only the web image alongside an already-running daemon.
-
-The image contains only the static Go gateway and embedded browser assets. It does not include `tetherd`. Each release is published as `ghcr.io/napisani/tether-web:<version>` for amd64 and arm64; use that name in place of `tether-web` below to skip the build.
-
-```bash
-docker build -t tether-web .
-# Create a password file readable by the container's non-root UID (1000),
-# containing a random password of at least 16 bytes.
-docker run --rm \
+```sh
+docker run -d --name tether-web \
   -p 127.0.0.1:5135:5135 \
   -v "$XDG_RUNTIME_DIR/tether:/run/tether:rw" \
   -v /path/to/tether-web-password:/run/secrets/tether-web-password:ro \
-  -e TETHER_WEB_AUTH_USER=owner \
-  -e TETHER_WEB_AUTH_PASSWORD_FILE=/run/secrets/tether-web-password \
   -e TETHER_SOCKET_PATH=/run/tether/tetherd.sock \
   -e TETHER_WEB_LISTEN=0.0.0.0:5135 \
   -e TETHER_WEB_ALLOWED_HOSTS=localhost \
-  tether-web
+  -e TETHER_WEB_AUTH_USER=owner \
+  -e TETHER_WEB_AUTH_PASSWORD_FILE=/run/secrets/tether-web-password \
+  ghcr.io/napisani/tether-web:latest
 ```
 
-In Kubernetes, run `tether-web` as a sidecar beside `tetherd` and mount the same disk-backed runtime volume into both containers. The gateway stages at most two 256 MiB files in private directories beside the Unix socket, then asks the daemon to `send_file` by path; never mount `/data` or `/downloads` into the web container. Give the shared volume at least 1 GiB and keep both containers under the same non-root UID. The gateway removes staged files on matching terminal results or after a bounded timeout.
+### From source
+
+```sh
+make build
+TETHER_SOCKET_PATH="$XDG_RUNTIME_DIR/tether/tetherd.sock" ./bin/tether-web
+```
+
+The server listens on `127.0.0.1:5135` by default. A loopback listener needs no password.
+
+### Kubernetes
+
+Run tether-web as a sidecar in the `tetherd` pod. Mount the same disk-backed runtime volume into both containers and run them as the same non-root UID. Give the volume at least 1 GiB, because the gateway stages up to two 256 MiB browser uploads beside the socket before handing them to `tetherd`. Do not mount Tether's `/data` or `/downloads` into the web container.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `TETHER_SOCKET_PATH` | `$XDG_RUNTIME_DIR/tether/tetherd.sock` | `tetherd` Unix socket |
+| `TETHER_SOCKET_PATH` | `$XDG_RUNTIME_DIR/tether/tetherd.sock` | Path to the `tetherd` Unix socket |
 | `TETHER_WEB_LISTEN` | `127.0.0.1:5135` | HTTP listen address |
-| `TETHER_WEB_ALLOWED_HOSTS` | loopback names only | Comma-separated accepted Host names; required for wildcard listeners |
-| `TETHER_WEB_AUTH_USER` | unset | HTTP Basic username; required for non-loopback listeners |
-| `TETHER_WEB_AUTH_PASSWORD_FILE` | unset | Path to a non-root-readable password file (16–4096 bytes); required for non-loopback listeners |
+| `TETHER_WEB_ALLOWED_HOSTS` | loopback names only | Comma-separated Host names to accept. Required for wildcard listeners such as `0.0.0.0`. |
+| `TETHER_WEB_AUTH_USER` | unset | HTTP Basic username. Required for non-loopback listeners. |
+| `TETHER_WEB_AUTH_PASSWORD_FILE` | unset | File containing the HTTP Basic password (16 to 4096 bytes). Required for non-loopback listeners. |
 
-## Security
+`/healthz` reports that the server is running and `/readyz` reports that it is connected to `tetherd`. Both are unauthenticated for container health checks.
 
-The HTTP API can send any supported `tetherd` command and observe private daemon events, including live call data. Loopback-only development may run without authentication. For every non-loopback listener, startup requires a username and password file and protects the UI, state, events, and commands with HTTP Basic authentication; health probes remain unauthenticated. Use HTTPS for remote access: Basic credentials must not cross the network in plaintext. Keep the password out of the image, command line, and repository; mount it as a read-only Kubernetes Secret or equivalent.
+## Remote access and security
 
-Host validation, same-origin checks, and the absence of CORS access complement authentication but do not replace it. All authenticated browsers share the same daemon privileges; this is a single-owner service, not per-user authorization.
+Anyone who can sign in to tether-web can read your messages, notifications and live call data, and can send any command `tetherd` supports. Treat it like the phone itself.
 
-Numeric Bluetooth comparison always requires explicit user confirmation. The browser never approves a pairing code automatically.
+- Keep the port bound to `127.0.0.1` and put an HTTPS reverse proxy in front of it for remote access. Add the proxy's Host name to `TETHER_WEB_ALLOWED_HOSTS`. HTTP Basic credentials must never cross a network in plain HTTP.
+- tether-web refuses to start on a non-loopback address without a username and password file.
+- Mount the password file as a read-only secret. Do not put the password in the image, the command line, `.env` or Git.
+- There is one owner. Every signed-in browser has the same access.
+- Bluetooth pairing always asks you to confirm the six-digit code. The browser never accepts one automatically.
 
-## Development
+## Updating
 
-```bash
-make check       # Oxlint, Go vet/race tests, UI tests, and production build
-make lint        # Oxlint with complexity, React, JSX-a11y, Vitest, and anti-slop rules
-make test-e2e    # desktop and mobile browser flows
-make docker      # standalone container image
+tether-web and Tether core are versioned separately. Pin both image tags in `deploy/.env`, read the release notes, and back up Tether's `/data` directory before changing the core tag. Then:
+
+```sh
+compose pull
+compose up -d
 ```
 
-The UI vendors the generic rules from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) at `ui/tools/oxlint/anti-slop/`. The Effect-specific rules are intentionally not enabled because this project does not use Effect. Boundary parser modules have documented Oxlint overrides where runtime narrowing is the validation mechanism.
+See the [upgrade and backup notes](deploy/README.md#operate-and-troubleshoot) for details.
 
-Runtime protocol validation is centralized in `ui/src/protocolSchemas.ts` using Zod. It validates daemon SSE events and outgoing commands; the Go gateway remains responsible for its own HTTP/Unix-socket JSON framing.
+## Screenshots
 
-The gateway intentionally treats daemon JSON as transport data. New features should use commands and events from the upstream [`zackb/tether`](https://github.com/zackb/tether) daemon rather than feature-specific Go HTTP routes. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+| Pairing | Settings |
+| --- | --- |
+| ![The pairing security check asking whether the iPhone shows the same six-digit code](docs/img/numeric-confirmation.png) | ![The Settings view with browser alerts, Bluetooth, and host notification mirroring controls](docs/img/settings.png) |
 
-## Versioning and releases
+## Contributing
 
-tether-web follows [Semantic Versioning](https://semver.org/) independently of Tether core. Pushing a `vMAJOR.MINOR.PATCH` tag on `main` publishes `ghcr.io/napisani/tether-web` and a GitHub Release. A manual workflow publishes `ghcr.io/napisani/tether-core`, an unofficial image built from an unmodified upstream Tether release. `scripts/release-web.sh` and `scripts/publish-core-image.sh` run those releases by hand, and `make version` prints the version of the current checkout. See [docs/RELEASING.md](docs/RELEASING.md) for the versioning rules and release steps.
+Bug reports and pull requests are welcome. [future-features.md](future-features.md) lists upstream features that still need a web implementation.
+
+tether-web is a client of `tetherd`, not a second implementation of Tether. New features use the daemon's existing commands and events, and each view mirrors its counterpart in the [Tether GTK app](https://github.com/zackb/tether/tree/main/src/gtk). Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before starting, and update [docs/UI_PARITY.md](docs/UI_PARITY.md) when a view changes.
+
+```sh
+make build       # Build the UI and the ./bin/tether-web server
+make check       # Lint, Go vet and race tests, UI tests, and a production build
+make test-e2e    # Playwright flows against a fake tetherd, desktop and mobile
+make docker      # Build a local container image
+```
+
+The end-to-end tests run the real Go server against a fake daemon, so you do not need a phone or Bluetooth adapter to work on most features. Maintainers publish releases by pushing a `vX.Y.Z` tag. See [docs/RELEASING.md](docs/RELEASING.md).
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+tether-web depends on [Tether](https://github.com/zackb/tether) by Zack Bartel.
