@@ -1,5 +1,6 @@
 /bin/
 /ui/node_modules/
+.direnv/
 /ui/test-results/
 /ui/playwright-report/
 /ui/.playwright-cli/
