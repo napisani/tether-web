@@ -138,6 +138,13 @@ make test-e2e    # Playwright flows against a fake tetherd, desktop and mobile
 make docker      # Build a local container image
 ```
 
+For UI work with hot reload, run the server on its default port and start Vite in a second terminal. Vite proxies `/api` to `127.0.0.1:5135`.
+
+```sh
+TETHER_SOCKET_PATH="$XDG_RUNTIME_DIR/tether/tetherd.sock" ./bin/tether-web
+cd ui && npm run dev    # Open http://localhost:5173/
+```
+
 The end-to-end tests run the real Go server against a fake daemon, so you do not need a phone or Bluetooth adapter to work on most features. Maintainers publish releases by pushing a `vX.Y.Z` tag. See [docs/RELEASING.md](docs/RELEASING.md).
 
 ## License
