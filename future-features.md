@@ -4,8 +4,8 @@ Upstream [Tether](https://github.com/zackb/tether) capabilities that tether-web 
 
 <!-- tether-upstream-review
 repository: https://github.com/zackb/tether
-head: a5ad39a0e8903f87384c257cd55daef91313b0f6
-reviewed_at: 2026-09-29
+head: d2f705ad30c1e7870eb6e935b7c873b6376e1b87
+reviewed_at: 2026-10-06
 -->
 
 Statuses: *missing* means the web client has no support. *Partial* means some support exists but a user outcome, state, or lifecycle case is absent. *Blocked upstream* means parity needs a protocol capability that `tetherd` does not expose.
@@ -31,6 +31,8 @@ Statuses: *missing* means the web client has no support. *Partial* means some su
   - Dependencies/blockers: None.
 
 ## Upstream review log
+
+- 2026-10-06: reviewed `a5ad39a0e8903f87384c257cd55daef91313b0f6..d2f705ad30c1e7870eb6e935b7c873b6376e1b87` (6 commits after v0.2.35); inspected merged PRs [#219](https://github.com/zackb/tether/pull/219), [#221](https://github.com/zackb/tether/pull/221), and [#224](https://github.com/zackb/tether/pull/224). No new web parity items; the two existing partial items remain open. [#221](https://github.com/zackb/tether/commit/5fcc1f49841240d22655e4119be42bea0f764d61) adds `set_popup_previews` and `popup_previews_enabled` for **daemon-host desktop popups** only. The web client's `useBrowserNotifications.ts` deliberately emits generic, content-free alerts independent of host popups, and `SettingsView.tsx` documents that platform difference; exposing this host setting as a browser notification preference would be misleading. [#224](https://github.com/zackb/tether/commit/ad8b6b0aca7df6e37d28fd113407af38cbf89748) enables local installation of Tether's separate Chromium native-messaging extension, not a GTK/web-client feature. [#219](https://github.com/zackb/tether/commit/efa0eaa98bf9db6cd3be881ccc037bc48648d255) only documents tether-web headless use. Checked the upstream compare's paths and diffs, related PRs and release, and the local protocol schemas, transport, lifecycle, Settings, browser alerts, and existing parity guidance.
 
 - 2026-09-29: first review, baseline `v0.2.34..v0.2.35` (`f4173de675f1463c02543fa62d4914115b337590..a5ad39a0e8903f87384c257cd55daef91313b0f6`). Upstream `main` was at the v0.2.35 release and `develop` had nothing ahead of it. This covers only that release, not earlier Tether history; [docs/UI_PARITY.md](docs/UI_PARITY.md) tracks older gaps such as Send Clipboard. Inspected PRs #207, #208, #211, #214, #215 and #217. Found 2 partial items.
   - Already implemented in tether-web: `protocol_info` and capability gating, the `apple_nearby` hint, pairing `operation_id` on `bt_pair`, `bt_unpair` and `bt_pair_confirm`, `send_file` result correlation including connection failures, `bt_send_message` result correlation with `thread`, the conditional `clipboard` capability (`PeerPane.tsx`), and `TETHER_BLUEZ_SECURE_CONNECTIONS` in the Compose example.
