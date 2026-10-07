@@ -3,7 +3,7 @@
 A self-hosted web interface for [Tether](https://github.com/zackb/tether), the Linux companion for iPhone. Run it on your home server and use your iPhone's messages, calls, notifications, contacts and file transfer from any browser.
 
 > [!WARNING]
-> tether-web is experimental and has not yet been validated as a replacement for the Tether GTK app on physical phones.
+> tether-web is experimental and has not yet been fully validated with physical phones.
 
 ![The Devices view with a paired iPhone, its Classic Bluetooth and Low Energy status, and connection controls](docs/img/connected.png)
 
@@ -106,9 +106,11 @@ alongside the web UI. MCP uses the same HTTP Basic credentials as the web UI;
 configure them even for localhost. OAuth and stdio transport are not implemented.
 
 Follow the [MCP setup guide](docs/MCP_SETUP.md) for server configuration, client
-authentication, verification, available tools, and safe handling of send outcomes.
-The initial tools are `get_status`, `send_message`, and `get_operation`.
-Full UI parity is not implemented yet.
+authentication, verification, the tools, and how agents should treat uncertain outcomes.
+The tools cover messages, contacts, notifications, calls, Bluetooth and Wi-Fi devices,
+AirPods, file sending and host settings. Actions that delete history or change device
+trust ask the agent to confirm first, and Bluetooth pairing needs a person to verify
+the code on the phone.
 
 ## Remote access and security
 

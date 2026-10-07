@@ -54,7 +54,7 @@ func (b *testBus) Subscribe(*uint64) (gateway.Subscription, error) {
 func readySet(t *testing.T) (*Set, *testBus) {
 	t.Helper()
 	bus := &testBus{generation: 1, isReady: true, events: make(chan gateway.Event)}
-	set, err := New(bus)
+	set, err := New(bus, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func readySet(t *testing.T) (*Set, *testBus) {
 
 func TestNewIgnoresRetainedPhoneSnapshot(t *testing.T) {
 	bus := &testBus{generation: 1, isReady: true, events: make(chan gateway.Event)}
-	set, err := New(bus)
+	set, err := New(bus, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestImmediateResultWinsOverAmbiguousWrite(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		set.applyMessageResult(gateway.Event{Generation: 1, Data: result})
+		set.applyStatusEvent(gateway.Event{Generation: 1, Data: result}, "bt_send_result")
 		return errors.New("write outcome unclear")
 	}
 	_, output, err := set.sendMessage(t.Context(), nil, sendMessageInput{
@@ -262,7 +262,7 @@ func TestMalformedAndOldResultsCannotCompleteOperations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			set.applyMessageResult(gateway.Event{Generation: test.generation, Data: raw})
+			set.applyStatusEvent(gateway.Event{Generation: test.generation, Data: raw}, "bt_send_result")
 			_, result, err := set.getOperation(t.Context(), nil, operationInput{OperationID: output.OperationID})
 			if err != nil || result.Status != statusPending {
 				t.Fatalf("malformed result accepted: %+v, error = %v", result, err)

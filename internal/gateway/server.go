@@ -8,6 +8,7 @@ import (
 type Config struct {
 	AllowedHosts []string
 	StagingDir   string
+	Uploads      *Uploads
 	Auth         *BasicCredentials
 	MCPHandler   http.Handler
 }
@@ -17,7 +18,11 @@ func NewHandler(bus Bus, assets fs.FS, config Config) http.Handler {
 	registerHealthHandlers(mux, bus)
 	registerStateHandler(mux, bus)
 	registerEventHandler(mux, bus)
-	registerCommandHandler(mux, bus, newUploadStore(bus, config.StagingDir))
+	uploads := config.Uploads
+	if uploads == nil {
+		uploads = NewUploads(bus, config.StagingDir)
+	}
+	registerCommandHandler(mux, bus, uploads)
 	if config.MCPHandler != nil {
 		mux.Handle("/mcp", config.MCPHandler)
 	} else {

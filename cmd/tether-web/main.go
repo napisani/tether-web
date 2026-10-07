@@ -81,10 +81,12 @@ func run() error {
 		return errors.New("web assets are missing; run the UI build before compiling tether-web")
 	}
 	bus := daemon.New(socketPath, time.Second)
+	// One staging area serves the browser and MCP, so they share its quota.
+	uploads := gateway.NewUploads(bus, filepath.Dir(socketPath))
 	var agent *mcpserver.Server
 	var agentHandler http.Handler
 	if mcpEnabled {
-		agent, err = mcpserver.New(bus, mcpserver.Config{Version: version})
+		agent, err = mcpserver.New(bus, uploads, mcpserver.Config{Version: version})
 		if err != nil {
 			return fmt.Errorf("starting MCP tools: %w", err)
 		}
@@ -119,7 +121,7 @@ func run() error {
 	server := &http.Server{
 		Addr: listenAddress,
 		Handler: gateway.NewHandler(bus, assets, gateway.Config{
-			AllowedHosts: allowedHosts, StagingDir: filepath.Dir(socketPath), Auth: auth, MCPHandler: agentHandler,
+			AllowedHosts: allowedHosts, Uploads: uploads, Auth: auth, MCPHandler: agentHandler,
 		}),
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,

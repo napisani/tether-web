@@ -24,8 +24,8 @@ type Server struct {
 	slots   chan struct{}
 }
 
-func New(bus gateway.Bus, config Config) (*Server, error) {
-	set, err := tools.New(bus)
+func New(bus gateway.Bus, uploads *gateway.Uploads, config Config) (*Server, error) {
+	set, err := tools.New(bus, uploads)
 	if err != nil {
 		return nil, err
 	}

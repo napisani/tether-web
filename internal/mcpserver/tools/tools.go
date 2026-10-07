@@ -14,6 +14,7 @@ import (
 
 type Set struct {
 	bus          gateway.Bus
+	uploads      *gateway.Uploads
 	subscription gateway.Subscription
 	instanceID   string
 
@@ -24,28 +25,41 @@ type Set struct {
 	generation  uint64
 	protocol    *protocolInfo
 	bluetooth   *bluetoothStatus
+	host        *hostSettings
 	connection  *connectionStatus
 	operations  map[string]*operation
 	requestKeys map[string]string
+	challenges  map[string]*challenge
+	waiters     map[*waiter]struct{}
 }
 
-func New(bus gateway.Bus) (*Set, error) {
+func New(bus gateway.Bus, uploads *gateway.Uploads) (*Set, error) {
 	subscription, err := bus.Subscribe(nil)
 	if err != nil {
 		return nil, err
 	}
 	return &Set{
-		bus: bus, subscription: subscription, instanceID: rand.Text(),
+		bus: bus, uploads: uploads, subscription: subscription, instanceID: rand.Text(),
 		generation:  subscription.Snapshot.Generation,
 		isConnected: subscription.Snapshot.DaemonConnected,
 		operations:  make(map[string]*operation), requestKeys: make(map[string]string),
+		challenges: make(map[string]*challenge), waiters: make(map[*waiter]struct{}),
 	}, nil
 }
 
 func (t *Set) Register(server *mcp.Server) {
 	t.registerStatusTools(server)
 	t.registerMessageTools(server)
+	t.registerContactTools(server)
+	t.registerNotificationTools(server)
+	t.registerCallTools(server)
+	t.registerDeviceTools(server)
+	t.registerPeerTools(server)
+	t.registerAirPodsTools(server)
+	t.registerSettingTools(server)
+	t.registerFileTools(server)
 	t.registerOperationTools(server)
+	t.registerConfirmationTools(server)
 }
 
 func (t *Set) Run(ctx context.Context) error {
@@ -68,6 +82,7 @@ func (t *Set) Run(ctx context.Context) error {
 		case now := <-ticker.C:
 			t.mu.Lock()
 			t.expireOperations(now)
+			t.expireChallenges(now)
 			t.mu.Unlock()
 		case event, open := <-t.subscription.Events:
 			if !open {
@@ -79,21 +94,20 @@ func (t *Set) Run(ctx context.Context) error {
 				}
 				return errors.New("mcp daemon event stream ended")
 			}
-			var envelope struct {
-				Command string `json:"command"`
-			}
-			if json.Unmarshal(event.Data, &envelope) != nil {
-				continue
-			}
-			switch envelope.Command {
-			case "gateway_status", "protocol_info", "bt_status", "bt_connection_changed":
-				if t.applyStatusEvent(event, envelope.Command) {
-					t.refreshStatus(ctx)
-				}
-			case "bt_send_result":
-				t.applyMessageResult(event)
-			}
+			t.handleEvent(ctx, event)
 		}
+	}
+}
+
+func (t *Set) handleEvent(ctx context.Context, event gateway.Event) {
+	var envelope struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(event.Data, &envelope) != nil || envelope.Command == "" {
+		return
+	}
+	if t.applyStatusEvent(event, envelope.Command) {
+		t.refreshStatus(ctx)
 	}
 }
 

@@ -49,13 +49,36 @@ agent event streams.
 state. It consumes the same `gateway.Bus` as the browser gateway, without
 adding feature behavior to gateway or changing the daemon protocol.
 
-The initial tools are `get_status`, `send_message`, and `get_operation`.
-One process-lifetime subscriber tracks current status and correlated sends.
-Pending records register before dispatch, retain only request/thread hashes
-rather than message bodies, and become uncertain on connection or event-stream
-loss. Socket write failures cannot be interpreted as definite non-delivery.
-Request-key deduplication is bounded and process-local; a server instance ID
-prevents replaying an old process's send request after restart.
+The tools cover every feature of the web UI. One process-lifetime subscriber feeds
+three mechanisms in `internal/mcpserver/tools/`:
+
+- **Reads** (`requests.go`) register a waiter, send a list command, and return the
+  first matching reply. A reply is a current observation, not one attributed to
+  the caller, because other clients can trigger the same event.
+- **Actions** (`operations.go`) register a bounded operation record with an
+  observer before writing the command. The observer moves the record forward from
+  the daemon events that resolve it: a result carrying the operation's own ID, an
+  observed state, or an unattributed result. Records retain request and thread
+  hashes rather than message text, and become uncertain on connection loss. A
+  write error never proves non-delivery. Request-key deduplication is bounded and
+  process-local, and a server instance ID prevents replaying an old process's
+  request after restart.
+- **Confirmations** (`confirmations.go`) save one exact typed action behind a
+  single-use challenge for destructive retention, plaintext storage and device
+  trust changes. Approval is an explicit caller acknowledgment, not proof of a
+  person, and challenges are voided when the connection generation changes.
+
+Bluetooth pairing keeps the human step: the operation exposes the six-digit code
+for the caller to show, and `confirm_pairing` forwards the person's answer. Wi-Fi
+pairing only targets devices tetherd discovered, never a caller-supplied address.
+
+File sending shares one `gateway.Uploads` staging area between the browser and
+MCP, so both draw on one two-upload quota. The browser adapter decodes HTTP
+commands and the MCP tools call its typed methods. A send is correlated by its
+upload ID, and a refused send that never reached `send_file` leaves no record.
+
+The server logs each action, its status changes and each confirmation decision by
+ID, never by content.
 
 Connection generations are Go-only transport metadata on snapshots and events.
 They do not change browser JSON or daemon frames. The MCP client ignores retained
@@ -65,9 +88,7 @@ subscriber closure fails MCP closed, logs the error, and keeps the web UI runnin
 The tools then reject sends until the process restarts, rather than continuing
 to authorize actions from stale state.
 
-[The MCP design](MCP_DESIGN.md) describes the remaining parity work. Shared
-upload extraction and sensitive-action confirmations remain deferred until
-their tools are implemented.
+[The MCP design](MCP_DESIGN.md) records the design and its rationale.
 
 ## Browser interface
 

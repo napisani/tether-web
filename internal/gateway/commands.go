@@ -15,7 +15,7 @@ var (
 	errCommandRequired  = errors.New("command is required")
 )
 
-func registerCommandHandler(mux *http.ServeMux, bus Bus, uploads *uploadStore) {
+func registerCommandHandler(mux *http.ServeMux, bus Bus, uploads *Uploads) {
 	mux.HandleFunc(commandsRoute, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -34,7 +34,8 @@ func registerCommandHandler(mux *http.ServeMux, bus Bus, uploads *uploadStore) {
 		}
 		_ = json.Unmarshal(command, &envelope)
 		if status, err := uploads.handle(r.Context(), command, envelope.Command); status != 0 {
-			if _, notForwarded := err.(uploadNotForwardedError); notForwarded {
+			var refused *UploadError
+			if errors.As(err, &refused) && refused.NotForwarded {
 				w.Header().Set("X-Tether-Upload-Outcome", "not-forwarded")
 			}
 			if err != nil {

@@ -1,26 +1,32 @@
 # Optional MCP interface
 
-Status: the initial slice is implemented with the official Go MCP SDK v1.4.0.
+Status: implemented with the official Go MCP SDK v1.4.0. The tools match the
+web UI's features. [MCP_SETUP.md](MCP_SETUP.md) lists them, and
+[ARCHITECTURE.md](ARCHITECTURE.md) describes the code as built. This document
+keeps the design reasoning, and its sketches are not the final signatures.
 
-Current tools are `get_status`, `send_message`, and `get_operation`. The
-remaining sections describe the target design, not completed parity.
-The initial server uses stateless Streamable HTTP with JSON responses and no
-standalone agent event stream. It consumes current-generation daemon events
-through one process-lifetime subscriber. An unexpected stream closure fails
-closed, logs the error, and leaves the web UI running.
+Where the build differs from the sketch below:
 
-This slice does not pass uploads into MCP or extract shared staging yet:
-there is no MCP file consumer to justify that change. It adds `Close` to the
-server/tool-set lifecycle so a constructed subscriber is released even before
-`Run` starts. Upload integration will follow the sketch when file tools arrive.
-Sensitive-action confirmations will need a supported human interaction before
-they are implemented; stateless transport cannot perform SDK server-to-client
-elicitation.
-
-Sends require the current `instance_id` from `get_status`. Retry protection
-and operation lookup last one hour, with a limit of 256 records. The currently
-implemented outcomes all have an operation ID, status, message, and expiry;
-confirmation-specific variants remain part of the target design.
+- Stateless Streamable HTTP with JSON responses and no standalone agent event
+  stream. An unexpected event-stream closure fails the tools closed, logs the
+  error, and leaves the web UI running.
+- One result type carries the outcome variants, with a `status` and optional
+  `pairing_code`, `challenge_id` and `summary` fields, instead of a closed union.
+  Statuses are `pending`, `correlated_success`, `correlated_failure`, `observed`,
+  `reported_failure`, `unknown`, `needs_pairing_verification`,
+  `confirmation_required` and `cancelled`.
+- `observed` and `reported_failure` cover results the daemon cannot attribute to a
+  request. A `reported_failure` stays open, because the expected state can still
+  appear.
+- Confirmations are single-use challenges approved with `confirm_action`. Stateless
+  transport cannot perform SDK elicitation, so approval is a caller acknowledgment,
+  not proof that a person agreed.
+- `gateway.Uploads` is shared by the browser and MCP, with typed `Start`, `Append`,
+  `Send` and `Cancel` methods and a typed `UploadError`. `mcpserver.New` takes it.
+- Upload tools are `begin_upload`, `append_upload`, `send_upload` and
+  `cancel_upload`. Large files need many chunk calls, so they suit small files.
+- Retry protection and operation lookup last one hour, with a limit of 256 records.
+  `send_message` and `dial_call` also require the current `instance_id`.
 
 ## Problem
 
