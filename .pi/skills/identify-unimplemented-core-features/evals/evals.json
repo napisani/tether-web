@@ -4,20 +4,56 @@
     {
       "id": 1,
       "prompt": "Review the latest changes in https://github.com/zackb/tether since the last upstream review recorded in the repository. Identify any newly expanded core or user-facing features that tether-web does not implement, then update the root future-features.md with rich checkbox items and a new review checkpoint. Preserve unrelated existing notes.",
-      "expected_output": "The root future-features.md is created or updated with an immutable upstream range, evidence-backed missing/partial parity items, implementation touchpoints, acceptance criteria, and a review log. Existing items are preserved and duplicates are reconciled.",
+      "expected_output": "The root future-features.md records an immutable upstream range and separate web UI and MCP statuses for each candidate. Missing or partial items name verified client paths, new tools or existing tool/schema/outcome changes, per-client acceptance criteria, and a review log. Existing items remain intact. The checkpoint advances only after both clients are reviewed; application code stays unchanged.",
       "files": []
     },
     {
       "id": 2,
-      "prompt": "Run an incremental parity audit of zackb/tether. There is already a future-features.md with older checklist items and an upstream checkpoint. Review only changes after that checkpoint, determine which items are still missing versus implemented in ui/src, add only genuinely new work, and update the checkpoint and review log.",
-      "expected_output": "Only post-checkpoint upstream changes are considered; the existing backlog remains intact, duplicate or completed items are reconciled with evidence, and new entries identify protocol/GTK behavior, local web touchpoints, parity states, and acceptance criteria.",
-      "files": ["future-features.md"]
+      "prompt": "Run an incremental parity audit of zackb/tether using the existing future-features.md checkpoint. Review subsequent upstream changes for both UI and MCP. Check whether the checkpoint covered MCP; if not, assess the existing backlog and prior review log against MCP as a bounded baseline. Preserve notes, reconcile duplicates, and update the checkpoint only when review is complete.",
+      "expected_output": "Post-checkpoint discoveries are separate from any first-time MCP baseline. A legacy UI-only checkpoint is not treated as MCP coverage. Items retain separate client statuses and remain open when only the UI is implemented. The review log names the actual range and baseline scope without claiming all historical features were reviewed.",
+      "files": ["../../../future-features.md"]
     },
     {
       "id": 3,
       "prompt": "Audit recent upstream Tether changes for web parity, paying special attention to protocol fixes, reconnect behavior, and new GTK actions. Separate true feature-surface expansion from maintenance-only changes, and update future-features.md only for missing or partial user outcomes. Do not invent a web-specific daemon route.",
-      "expected_output": "The audit classifies candidates with evidence, excludes maintenance-only changes, records any missing or partial feature with lifecycle/protocol implications, and explicitly documents blockers when the upstream protocol is insufficient.",
+      "expected_output": "The audit classifies both clients with evidence, excludes maintenance-only changes, and records lifecycle/protocol implications for affected UI flows and MCP tools. It checks capability refresh, schemas, pending operations, correlation, stale-generation events, and uncertain outcomes. A true protocol gap becomes a documented blocker, not a fabricated command, false success, or automatic retry.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Use this hypothetical review fixture, not a claim about an actual upstream release: bt_send_message gains an optional argument and bt_send_result gains a result field. The UI already handles both, but the registered send_message MCP tool still uses the previous schema and result interpretation. Draft the parity assessment and backlog item without changing repository files or advancing a checkpoint. Identify the Go tool, wire types, output contract, tests, and docs that need inspection before implementation.",
+      "expected_output": "The assessment reports UI implemented and MCP partial, identifies an existing tool change rather than blindly adding another tool, and leaves the candidate incomplete. It names internal/mcpserver/tools and authenticated SDK/HTTP tests, accounts for schema compatibility and result uncertainty, and treats the hypothetical fixture as unverified evidence rather than inventing a shipped release or SHA.",
+      "files": [],
+      "expectations": [
+        "UI completion does not cause the MCP gap to be marked implemented.",
+        "The proposed work updates send_message rather than creating a raw daemon-command proxy.",
+        "The response accounts for input/output contracts and truthful completion semantics.",
+        "No repository files or upstream checkpoint are changed."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Implement only the UI portion of an existing upstream parity backlog item whose MCP portion is still missing. Inspect the MCP consequences and record remaining tool work, but do not implement MCP tools or change authentication in this task. Preserve the daemon protocol and update the backlog using the verified UI test results.",
+      "expected_output": "Implementation stays within the explicitly requested UI scope, with relevant React checks and Playwright for changed browser flows. The agent evaluates and documents MCP impact but keeps its missing status and the overall checkbox open. No MCP or OAuth implementation is added, and implementation alone does not advance the upstream review checkpoint.",
+      "files": ["../../../future-features.md"],
+      "expectations": [
+        "Only user-approved UI implementation is performed.",
+        "The MCP gap remains explicit and the overall item remains unchecked.",
+        "The upstream review checkpoint is not advanced by implementation alone.",
+        "No upstream protocol, gateway feature route, or authentication change is introduced."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Use a hypothetical review fixture, without modifying files or claiming a real upstream release: a new phone action is wired into the web UI but has no registered MCP tool. The daemon supports the action, but broadcasts a global terminal result that cannot identify the requesting client. Draft the MCP impact and acceptance criteria for a new typed tool. Preserve Basic auth and the existing daemon protocol.",
+      "expected_output": "The assessment reports UI implemented and MCP missing and proposes a semantic domain tool under internal/mcpserver/tools. It distinguishes acceptance from observed state or unknown outcome, does not claim correlated success from a global event, and does not invent a protocol correlation token. Authentication remains Basic and live phone actions are not performed.",
+      "files": [],
+      "expectations": [
+        "A new typed MCP tool is considered despite existing UI support.",
+        "A global uncorrelated result is not treated as confirmed completion of this client's action.",
+        "The plan preserves Basic auth, daemon authority, and existing transport boundaries.",
+        "Hypothetical evidence does not advance a real review checkpoint."
+      ]
     }
   ]
 }
