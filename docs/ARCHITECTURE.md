@@ -33,6 +33,42 @@ A necessary upstream addition must be narrow, backward-compatible, separately re
 
 The Go gateway owns reconnection, fan-out, bounded replay, durable snapshots, HTTP request checks, resource limits, and embedded assets. It does not own Bluetooth policy or expose feature-specific HTTP routes.
 
+## Optional MCP client
+
+`TETHER_WEB_MCP_ENABLED=true` mounts a Streamable HTTP endpoint at `/mcp`
+under the gateway's existing authentication and Host checks. Origin checks also
+apply to MCP GET requests. The gateway's explicit Host allowlist replaces the
+SDK's localhost-only restriction so approved reverse-proxy hosts work even
+when their backend is loopback. MCP handlers must not be mounted without the
+gateway's security wrapper. The official Go SDK handles MCP framing and schema
+validation; stateless JSON responses avoid retained MCP sessions and standalone
+agent event streams.
+
+`internal/mcpserver/server.go` owns HTTP adaptation and request limits.
+`internal/mcpserver/tools/` owns tool definitions and agent-client interaction
+state. It consumes the same `gateway.Bus` as the browser gateway, without
+adding feature behavior to gateway or changing the daemon protocol.
+
+The initial tools are `get_status`, `send_message`, and `get_operation`.
+One process-lifetime subscriber tracks current status and correlated sends.
+Pending records register before dispatch, retain only request/thread hashes
+rather than message bodies, and become uncertain on connection or event-stream
+loss. Socket write failures cannot be interpreted as definite non-delivery.
+Request-key deduplication is bounded and process-local; a server instance ID
+prevents replaying an old process's send request after restart.
+
+Connection generations are Go-only transport metadata on snapshots and events.
+They do not change browser JSON or daemon frames. The MCP client ignores retained
+phone metadata until it observes current-generation replies, including when the
+socket reconnects faster than its event consumer catches up. An unexpected
+subscriber closure fails MCP closed, logs the error, and keeps the web UI running.
+The tools then reject sends until the process restarts, rather than continuing
+to authorize actions from stale state.
+
+[The MCP design](MCP_DESIGN.md) describes the remaining parity work. Shared
+upload extraction and sensitive-action confirmations remain deferred until
+their tools are implemented.
+
 ## Browser interface
 
 | Method | Path | Purpose |
@@ -55,6 +91,7 @@ External pairing commands carry an `operation_id` that the daemon echoes. Browse
 cmd/tether-web/       process setup and embedded assets
 internal/daemon/      Unix-socket connection, snapshots, replay, and command writes
 internal/gateway/     HTTP routes, SSE, security checks, and resource limits
+internal/mcpserver/   optional MCP HTTP transport and typed agent tools
 ui/src/app/           application shell and app-wide state
 ui/src/daemon/        browser transport
 ui/src/views/         feature state and presentation

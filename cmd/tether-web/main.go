@@ -15,11 +15,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/napisani/tether-web/internal/daemon"
 	"github.com/napisani/tether-web/internal/gateway"
+	"github.com/napisani/tether-web/internal/mcpserver"
 )
 
 //go:embed all:dist
@@ -46,6 +48,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	mcpEnabled, err := envBool("TETHER_WEB_MCP_ENABLED")
+	if err != nil {
+		return err
+	}
 	listenAddress := envOr("TETHER_WEB_LISTEN", "127.0.0.1:5135")
 	allowedHosts := csv(os.Getenv("TETHER_WEB_ALLOWED_HOSTS"))
 	wildcard, err := isWildcardListenAddress(listenAddress)
@@ -75,20 +81,54 @@ func run() error {
 		return errors.New("web assets are missing; run the UI build before compiling tether-web")
 	}
 	bus := daemon.New(socketPath, time.Second)
-	go bus.Run(ctx)
+	var agent *mcpserver.Server
+	var agentHandler http.Handler
+	if mcpEnabled {
+		agent, err = mcpserver.New(bus, mcpserver.Config{Version: version})
+		if err != nil {
+			return fmt.Errorf("starting MCP tools: %w", err)
+		}
+		agentHandler = agent.Handler()
+	}
+
+	serverErrors := make(chan error, 1)
+	var background sync.WaitGroup
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		bus.Run(ctx)
+	}()
+	if agent != nil {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			// The tools refuse work once Run returns, so the web UI keeps serving.
+			if err := agent.Run(ctx); err != nil {
+				slog.Error("MCP tools stopped; agent actions are unavailable until restart", "error", err)
+			}
+		}()
+	}
+	defer func() {
+		stop()
+		if agent != nil {
+			agent.Close()
+		}
+		background.Wait()
+	}()
 
 	server := &http.Server{
-		Addr:              listenAddress,
-		Handler:           gateway.NewHandler(bus, assets, gateway.Config{AllowedHosts: allowedHosts, StagingDir: filepath.Dir(socketPath), Auth: auth}),
+		Addr: listenAddress,
+		Handler: gateway.NewHandler(bus, assets, gateway.Config{
+			AllowedHosts: allowedHosts, StagingDir: filepath.Dir(socketPath), Auth: auth, MCPHandler: agentHandler,
+		}),
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    1 << 20,
 	}
 
-	serverErrors := make(chan error, 1)
 	go func() {
-		slog.Info("tether web listening", "version", version, "address", listenAddress, "socket", socketPath)
+		slog.Info("tether web listening", "version", version, "address", listenAddress, "socket", socketPath, "mcp_enabled", mcpEnabled)
 		serverErrors <- server.ListenAndServe()
 	}()
 
@@ -98,6 +138,7 @@ func run() error {
 		defer cancel()
 		return server.Shutdown(shutdownContext)
 	case err := <-serverErrors:
+		_ = server.Close()
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
@@ -138,6 +179,18 @@ func gatewayAuth(address string) (*gateway.BasicCredentials, error) {
 		return nil, errors.New("TETHER_WEB_AUTH_PASSWORD_FILE must contain a password between 16 and 4096 bytes")
 	}
 	return &gateway.BasicCredentials{Username: username, Password: password}, nil
+}
+
+func envBool(key string) (bool, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return false, nil
+	}
+	enabled, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("parsing %s: %w", key, err)
+	}
+	return enabled, nil
 }
 
 func envOr(key, fallback string) string {

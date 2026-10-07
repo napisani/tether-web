@@ -26,6 +26,7 @@ func (c *Client) Subscribe(afterID *uint64) (gateway.Subscription, error) {
 	}
 	c.subscribers[channel] = struct{}{}
 	connected := c.connected
+	generation := c.generation
 	events := cloneEvents(c.events)
 	replay := make([]gateway.Event, 0, len(c.history))
 	if afterID != nil {
@@ -49,7 +50,7 @@ func (c *Client) Subscribe(afterID *uint64) (gateway.Subscription, error) {
 		})
 	}
 	return gateway.Subscription{
-		Snapshot: gateway.Snapshot{DaemonConnected: connected, Events: events},
+		Snapshot: gateway.Snapshot{Generation: generation, DaemonConnected: connected, Events: events},
 		Replay:   replay,
 		Events:   channel,
 		Close:    closeSubscription,
@@ -59,7 +60,7 @@ func (c *Client) Subscribe(afterID *uint64) (gateway.Subscription, error) {
 func (c *Client) Snapshot() gateway.Snapshot {
 	c.stateMu.RLock()
 	defer c.stateMu.RUnlock()
-	return gateway.Snapshot{DaemonConnected: c.connected, Events: cloneEvents(c.events)}
+	return gateway.Snapshot{Generation: c.generation, DaemonConnected: c.connected, Events: cloneEvents(c.events)}
 }
 
 func (c *Client) Ready() bool {
@@ -84,13 +85,16 @@ func (c *Client) publish(data json.RawMessage) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	if envelope.Command == "gateway_status" {
+		if *envelope.DaemonConnected && !c.connected {
+			c.generation++
+		}
 		c.connected = *envelope.DaemonConnected
 	}
 	if _, durable := durableEvents[envelope.Command]; durable {
 		c.events[envelope.Command] = append(json.RawMessage(nil), eventData...)
 	}
 	c.nextEventID++
-	event := gateway.Event{ID: c.nextEventID, Data: eventData}
+	event := gateway.Event{ID: c.nextEventID, Generation: c.generation, Data: eventData}
 	c.remember(event)
 	for subscriber := range c.subscribers {
 		select {
@@ -123,5 +127,5 @@ func cloneEvents(events map[string]json.RawMessage) map[string]json.RawMessage {
 }
 
 func cloneEvent(event gateway.Event) gateway.Event {
-	return gateway.Event{ID: event.ID, Data: append(json.RawMessage(nil), event.Data...)}
+	return gateway.Event{ID: event.ID, Generation: event.Generation, Data: append(json.RawMessage(nil), event.Data...)}
 }

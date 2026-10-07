@@ -64,6 +64,29 @@ func TestGatewayAuthRequiresCredentialsOffLoopback(t *testing.T) {
 	}
 }
 
+func TestEnvBool(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{name: "unset"},
+		{name: "enabled", value: "true", want: true},
+		{name: "disabled", value: "false"},
+		{name: "numeric enabled", value: "1", want: true},
+		{name: "invalid", value: "yes", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("TETHER_WEB_MCP_ENABLED", test.value)
+			got, err := envBool("TETHER_WEB_MCP_ENABLED")
+			if got != test.want || (err != nil) != test.wantErr {
+				t.Fatalf("enabled = %v, error = %v", got, err)
+			}
+		})
+	}
+}
+
 func TestCSVTrimsAndDropsEmptyEntries(t *testing.T) {
 	got := csv(" tether.test, localhost ,,example.test ")
 	want := []string{"tether.test", "localhost", "example.test"}

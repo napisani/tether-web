@@ -58,7 +58,7 @@ func validateBrowserRequest(next http.Handler, allowedHosts []string) http.Handl
 			http.Error(w, "unrecognized host", http.StatusMisdirectedRequest)
 			return
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		if r.URL.Path == "/mcp" || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
 			if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 				http.Error(w, "cross-site request rejected", http.StatusForbidden)
 				return

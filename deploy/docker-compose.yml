@@ -65,6 +65,7 @@ services:
       TETHER_WEB_ALLOWED_HOSTS: ${TETHER_WEB_ALLOWED_HOSTS:-localhost,127.0.0.1}
       TETHER_WEB_AUTH_USER: ${TETHER_WEB_AUTH_USER:?Set a Basic Auth username}
       TETHER_WEB_AUTH_PASSWORD_FILE: /run/secrets/tether-web-password
+      TETHER_WEB_MCP_ENABLED: ${TETHER_WEB_MCP_ENABLED:-false}
     volumes:
       - type: bind
         source: ${TETHER_RUNTIME_DIR:?Set the SAME runtime directory as tether}

@@ -95,8 +95,20 @@ Run tether-web as a sidecar in the `tetherd` pod. Mount the same disk-backed run
 | `TETHER_WEB_ALLOWED_HOSTS` | loopback names only | Comma-separated Host names to accept. Required for wildcard listeners such as `0.0.0.0`. |
 | `TETHER_WEB_AUTH_USER` | unset | HTTP Basic username. Required for non-loopback listeners. |
 | `TETHER_WEB_AUTH_PASSWORD_FILE` | unset | File containing the HTTP Basic password (16 to 4096 bytes). Required for non-loopback listeners. |
+| `TETHER_WEB_MCP_ENABLED` | `false` | Enable the optional Streamable HTTP MCP endpoint at `/mcp` alongside the web UI. |
 
 `/healthz` reports that the server is running and `/readyz` reports that it is connected to `tetherd`. Both are unauthenticated for container health checks.
+
+## Agent access through MCP
+
+Enable `TETHER_WEB_MCP_ENABLED=true` to serve Streamable HTTP at `/mcp`
+alongside the web UI. MCP uses the same HTTP Basic credentials as the web UI;
+configure them even for localhost. OAuth and stdio transport are not implemented.
+
+Follow the [MCP setup guide](docs/MCP_SETUP.md) for server configuration, client
+authentication, verification, available tools, and safe handling of send outcomes.
+The initial tools are `get_status`, `send_message`, and `get_operation`.
+Full UI parity is not implemented yet.
 
 ## Remote access and security
 

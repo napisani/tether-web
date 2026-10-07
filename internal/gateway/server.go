@@ -9,6 +9,7 @@ type Config struct {
 	AllowedHosts []string
 	StagingDir   string
 	Auth         *BasicCredentials
+	MCPHandler   http.Handler
 }
 
 func NewHandler(bus Bus, assets fs.FS, config Config) http.Handler {
@@ -17,6 +18,11 @@ func NewHandler(bus Bus, assets fs.FS, config Config) http.Handler {
 	registerStateHandler(mux, bus)
 	registerEventHandler(mux, bus)
 	registerCommandHandler(mux, bus, newUploadStore(bus, config.StagingDir))
+	if config.MCPHandler != nil {
+		mux.Handle("/mcp", config.MCPHandler)
+	} else {
+		mux.Handle("/mcp", http.NotFoundHandler())
+	}
 	registerAssetHandler(mux, assets)
 	return securityHeaders(validateBrowserRequest(requireBrowserAuth(mux, config.Auth), config.AllowedHosts))
 }

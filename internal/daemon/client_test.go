@@ -59,10 +59,16 @@ func TestClientBridgesUnixCommandsEventsSnapshotsAndReplay(t *testing.T) {
 		t.Fatal("subscription snapshot reports disconnected client")
 	}
 	assertSnapshotGatewayStatus(t, subscription.Snapshot, true)
+	if subscription.Snapshot.Generation != 1 {
+		t.Fatalf("initial connection generation = %d", subscription.Snapshot.Generation)
+	}
 	if _, err := connection.Write([]byte(`{"command":"bt_status","available":true}` + "\n")); err != nil {
 		t.Fatal(err)
 	}
 	first := receiveEvent(t, subscription.Events)
+	if first.Generation != subscription.Snapshot.Generation {
+		t.Fatalf("event generation = %d, snapshot = %d", first.Generation, subscription.Snapshot.Generation)
+	}
 	if string(first.Data) != `{"command":"bt_status","available":true}` {
 		t.Fatalf("event = %s", first.Data)
 	}
@@ -78,7 +84,8 @@ func TestClientBridgesUnixCommandsEventsSnapshotsAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reconnected.Close()
-	if len(reconnected.Replay) != 1 || string(reconnected.Replay[0].Data) != `{"command":"bt_devices","devices":[]}` {
+	if len(reconnected.Replay) != 1 || reconnected.Replay[0].Generation != first.Generation ||
+		string(reconnected.Replay[0].Data) != `{"command":"bt_devices","devices":[]}` {
 		t.Fatalf("replay = %#v", reconnected.Replay)
 	}
 
@@ -153,6 +160,8 @@ func TestClientWaitsBeforeReconnectingAfterEOF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	waitForGatewayStatus(t, client, true)
+	firstGeneration := client.Snapshot().Generation
 	if err := connection.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +185,11 @@ func TestClientWaitsBeforeReconnectingAfterEOF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client did not reconnect: %v", err)
 	}
-	reconnected.Close()
+	defer reconnected.Close()
+	waitForGatewayStatus(t, client, true)
+	if got := client.Snapshot().Generation; got != firstGeneration+1 {
+		t.Fatalf("reconnected generation = %d, previous = %d", got, firstGeneration)
+	}
 }
 
 func shortSocketPath(t *testing.T) string {

@@ -10,7 +10,7 @@ RUN npm test && TETHER_WEB_VERSION=$VERSION npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS go-build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY internal/ ./internal/
 COPY cmd/ ./cmd/
 COPY --from=ui-build /src/cmd/tether-web/dist/ ./cmd/tether-web/dist/

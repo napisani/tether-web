@@ -6,13 +6,16 @@ import (
 )
 
 type Snapshot struct {
+	// Retained status events may describe an earlier daemon connection.
+	Generation      uint64                     `json:"-"`
 	DaemonConnected bool                       `json:"daemon_connected"`
 	Events          map[string]json.RawMessage `json:"events"`
 }
 
 type Event struct {
-	ID   uint64
-	Data json.RawMessage
+	ID         uint64
+	Generation uint64
+	Data       json.RawMessage
 }
 
 type Subscription struct {

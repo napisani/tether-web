@@ -23,6 +23,7 @@ type Client struct {
 	writeMu       sync.Mutex
 	stateMu       sync.RWMutex
 	connected     bool
+	generation    uint64
 	events        map[string]json.RawMessage
 	history       []gateway.Event
 	historyBytes  int
