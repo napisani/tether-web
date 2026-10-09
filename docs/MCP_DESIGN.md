@@ -1,15 +1,17 @@
 # Optional MCP interface
 
-Status: implemented with the official Go MCP SDK v1.4.0. The tools match the
+Status: implemented with the official Go MCP SDK v1.8.0 and Go 1.25. MCP
+2026-07-28 adds opt-in phone change subscriptions, documented in
+[MCP_SUBSCRIPTIONS.md](MCP_SUBSCRIPTIONS.md). The tools match the
 web UI's features. [MCP_SETUP.md](MCP_SETUP.md) lists them, and
 [ARCHITECTURE.md](ARCHITECTURE.md) describes the code as built. This document
 keeps the design reasoning, and its sketches are not the final signatures.
 
 Where the build differs from the sketch below:
 
-- Stateless Streamable HTTP with JSON responses and no standalone agent event
-  stream. An unexpected event-stream closure fails the tools closed, logs the
-  error, and leaves the web UI running.
+- Stateless Streamable HTTP with JSON responses for ordinary calls. Explicit
+  `subscriptions/listen` POST requests use SSE; standalone GET/SSE remains absent.
+  Observer failure closes listens and fails tools closed while the web UI runs.
 - One result type carries the outcome variants, with a `status` and optional
   `pairing_code`, `challenge_id` and `summary` fields, instead of a closed union.
   Statuses are `pending`, `correlated_success`, `correlated_failure`, `observed`,
@@ -39,7 +41,8 @@ The agreed feature contract is:
 - Agents have the same authority as authenticated UI users; no per-agent permission tiers.
 - Destructive retention changes, plaintext retention, and device trust changes require explicit confirmation through the agent client.
 - A person verifies Bluetooth pairing codes on the physical phone.
-- Version one supports on-demand reads/actions and operation checks, not continuous monitoring.
+- The initial version supported on-demand reads/actions and operation checks. The
+  subscription extension is host-driven monitoring, not autonomous phone actions.
 - Files arrive as agent-provided uploads, never server filesystem paths.
 - Existing daemon capabilities and restrictions remain authoritative.
 - Browser-only preferences and presentation are excluded. Deferred UI capabilities are not silently added.
