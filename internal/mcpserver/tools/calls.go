@@ -122,10 +122,23 @@ func (t *Set) listCalls(ctx context.Context, _ *mcp.CallToolRequest, _ struct{})
 	}
 	var reply callsEvent
 	if liveErr == nil {
+		// Capture only readiness failures: transport errors and unanswered reads
+		// must not be mistaken for HFP loss merely because HFP is now closed.
+		var readinessErr error
 		var err error
-		reply, err = t.currentCalls(ctx)
+		reply, err = requestAs[callsEvent](t, ctx, func() error {
+			readinessErr = t.callsReady()
+			return readinessErr
+		}, map[string]any{"command": "bt_list_calls"}, "bt_calls", nil)
 		if err != nil {
-			return nil, listCallsResult{}, err
+			t.mu.Lock()
+			historyOnly := readinessErr != nil && err == readinessErr && ctx.Err() == nil &&
+				generation == t.generation && t.currentConnection() && t.historyReady() == nil &&
+				t.callsReady() != nil
+			t.mu.Unlock()
+			if !historyOnly {
+				return nil, listCallsResult{}, err
+			}
 		}
 	}
 	calls := make([]callItem, 0, min(len(reply.Calls), maxCallItems))
@@ -141,9 +154,20 @@ func (t *Set) listCalls(ctx context.Context, _ *mcp.CallToolRequest, _ struct{})
 		calls = append(calls, call)
 	}
 	result := listCallsResult{Calls: calls, History: callHistoryResult{Availability: "unavailable", Calls: []recentCall{}}}
-	history, historyErr := requestAs[historyEvent](t, ctx, t.historyReady,
+	// History is optional. Bound its entire request separately and reserve half
+	// the remaining caller budget to return live results from a silent old daemon.
+	historyTimeout := readTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		historyTimeout = min(historyTimeout, time.Until(deadline)/2)
+	}
+	historyCtx, cancelHistory := context.WithTimeout(ctx, historyTimeout)
+	defer cancelHistory()
+	history, historyErr := requestAs[historyEvent](t, historyCtx, t.historyReady,
 		map[string]any{"command": "bt_list_call_history"}, "bt_call_history", func(event historyEvent) bool { return event.Calls != nil })
 	if historyErr != nil {
+		if errors.Is(historyErr, context.DeadlineExceeded) && ctx.Err() == nil {
+			historyErr = errors.New("tetherd did not reply to optional call history in time; try again")
+		}
 		result.History.Reason = boundedText(historyErr.Error(), 512)
 	} else {
 		result.History.Availability = "unknown"
