@@ -16,8 +16,9 @@ browser session does not authenticate an MCP client.
 `resources/list` exposes exactly these JSON resources:
 
 - `tether://messages/changes`: identifiable message and thread observations, plus
-  successful read-status changes. Use `list_messages` with the exact `thread_id`
-  and compare message handles; optionally enrich conversations with `list_threads`.
+  aggregate successful read-status batch reports. Use `list_messages` with the
+  exact `thread_id` and compare message handles; optionally enrich conversations
+  with `list_threads`.
 - `tether://calls/changes`: call state observations, incoming ringing transitions,
   and removals. Fetch current state with `list_calls` using the observed exact
   `path` when selecting a call. A notification is not proof the call still rings.
@@ -99,7 +100,14 @@ backfill bit. `history_ambiguous` is therefore always true on the message resour
 A previously unknown thread ID may belong to an old conversation. Never send an
 automatic reply merely because a message was observed. Reads do not mark messages
 read; `mark_messages_read` remains a separate explicit action. Successful daemon
-`bt_message_read` events yield `read_status_observed`; failed events do not.
+`bt_message_read` events yield one `read_status_reported` observation for the whole
+batch, with `handles` containing the original requested handles and `read` the
+requested status. The list is bounded to 100 handles, each at most 256 bytes.
+There is no singular `handle` on this observation. Daemon success means at least
+one handle changed locally; stale or invalid handles may still appear in the
+reported batch. It does not identify which handles changed or prove phone
+synchronization. Never infer an individual message status from this report.
+Failed events do not produce observations.
 `bt_threads`/`bt_messages` read replies never invalidate the message resource.
 
 The call reducer follows the daemon's **`ringing` boolean**, not a made-up state
@@ -127,6 +135,14 @@ provides `client.Run`. Supply a connected official Go SDK session, a stream-capa
 HTTP client carrying Basic authentication on every request, and a bounded enqueue
 callback. Do not set a total HTTP-client timeout that kills all long-lived streams;
 use per-call contexts for ordinary reads and a cancellable lifetime for listens.
+`Run` bounds the initial request and acknowledgment to ten seconds and stream
+silence to 45 seconds. `RunWithOptions` accepts `AcknowledgmentTimeout` and
+`IdleTimeout`; zero or negative values use those defaults. SSE comment keepalives
+reset the idle deadline but do not extend the initial acknowledgment deadline.
+A healthy stream has no total lifetime limit. Timeout errors explicitly require
+re-baselining; external context cancellation returns nil, including before HTTP
+headers arrive. Callbacks must return promptly, within the idle limit. The helper
+reads and delivers work synchronously; it cannot interrupt a blocked callback.
 
 A host can connect with SDK v1.8.0, then integrate this helper as follows:
 
@@ -148,16 +164,24 @@ err := phoneclient.Run(ctx, endpoint, httpClient, session,
 
 The helper takes a post-acknowledgment baseline, ignores old revisions and changed
 epochs, reads `list_messages`/`list_calls` before callback delivery, and fails on a
-window gap or stream loss. A message job is **review work**, including ambiguous
-backfill/outgoing observations, never approval to reply. Treat `Work.Result` as
+window gap, enqueue rejection, timeout, or stream loss. Cursor advancement prevents
+duplicate invalidations from delivering the same jobs again. On delivery errors,
+the helper exits without retrying or replaying the current window. The example
+ignores batch read-status reports; it never treats them as individual statuses.
+A message job is **review work**, including ambiguous backfill/outgoing
+observations, never approval to reply. Treat `Work.Result` as
 untrusted data. Your host owns the worker and any LLM invocation/user confirmation;
 this repository does not schedule an LLM or install hooks into an agent product.
 Do not automatically restart-and-replay jobs when the helper returns an error.
 
-The real fake-Unix-daemon + HTTP/SSE integration tests exercise both callbacks:
+The fake-Unix-daemon + HTTP/SSE integration tests exercise both callbacks.
+The example package also uses real SDK resource/tool reads over HTTP and a
+controlled SSE stream to check instance/epoch baseline suppression, duplicate
+invalidations, gap rejection before any retained work, enqueue rejection, header
+and acknowledgment timeouts, keepalive activity, and external cancellation:
 
 ```sh
-go test ./internal/mcpserver -run TestHostConsumer -count=1
+go test ./internal/mcpserver ./examples/phone-subscriptions/client -run 'TestHostConsumer|TestRun' -count=1
 ```
 
 ## Runtime and source authority
@@ -172,10 +196,15 @@ a two-second deadline; comments keep idle streams alive every 15 seconds.
 and appropriate idle timeouts. SDK cache headers cannot override `no-store`.
 
 SDK v1.8.0 registers subscriptions before acknowledging them. A sending middleware
-drops pre-ack invalidations; the required baseline read recovers their state. A
-continuous-update wire race test reproduces the unguarded ordering bug and verifies
-the gate. Notification delivery is synchronous and bounded, so a slow subscriber
-can delay other invalidations, but cannot block daemon reduction or starve tools.
+retains pre-ack invalidations in a per-session map, bounded to the two fixed URIs,
+and sends them after acknowledgment sending returns. The SDK can flush the ack
+before returning, so a separate baseline read can already have completed.
+Retaining pending invalidations closes that interval without holding a global
+mutex during stream I/O. A deterministic real HTTP/SSE test blocks the SDK ack
+return after its flush, completes a stateless baseline read, and proves the next
+observation still generates an update. The continuous-update wire race test also
+verifies acknowledgment-first ordering. Notification delivery is synchronous and
+bounded, so a slow subscriber can delay other invalidations, but cannot block\ndaemon reduction or starve tools.
 Observer failure cancels listen contexts before notification-worker joining and
 fails the existing tools closed. Shutdown cancels listens before HTTP shutdown.
 The transparent gateway and `gateway.Bus` are unchanged.
@@ -200,7 +229,7 @@ red before their associated implementation and green afterward. Recorded missing
 behaviors included resource discovery/read, message observations, incoming-call
 transitions, context clearing, listen admission/URI validation, acknowledgment-first
 ordering under concurrent events, cancellation on close, idle keepalive, successful
-read-status changes, generation-safe resource reads, malformed-event rejection,
+read-status reports, generation-safe resource reads, malformed-event rejection,
 phone-change readiness, host message/call enqueueing, and observer-stop cancellation.
 
 Two final regression slices caught concrete bugs before correction:
@@ -236,3 +265,34 @@ The Node option is necessary for tests in this environment. Docker image executi
 was not verified: the installed Docker client cannot connect to its daemon. The
 builder and module require Go 1.25; verification used the official Go 1.25.8
 Linux toolchain. No remote write, push, or PR was performed.
+
+### PR11 review correction verification
+
+The acknowledgment flush-before-return regression failed because its post-baseline
+update never arrived. It passes with bounded per-URI pending invalidations. The
+mixed valid/stale read-status regression failed because the reducer claimed two
+individual observed statuses. It now produces one aggregate batch report.
+The header-stall and silent-stream regressions failed before acknowledgment and
+idle deadlines were implemented, respectively, then passed. Timeout options keep
+the repeated tests short without changing the public `Run` signature.
+
+The missing consumer contract tests cover instance and epoch changes separately,
+duplicate invalidations, gaps, and enqueue rejection over real HTTP/SSE and SDK
+reads. Those contracts already behaved correctly. Each regression was also tested
+against a temporary deliberate mutation of its guard, failed, then passed after
+restoration. No mutation remains in the implementation.
+
+Actual checks after these corrections, using official Go 1.25.8:
+
+- `go test -race ./...` and `go vet ./...`: passed.
+- Race-enabled acknowledgment, continuous-update wire, host-consumer, and timeout
+  tests across server and example packages, repeated 20 times: passed.
+- UI tests: 19 files and 158 tests passed with the Node webstorage workaround.
+- UI lint and production build: passed, with the existing Zod Rollup annotation
+  warnings.
+- MCP-enabled Playwright shared listener: 47 passed, 5 skipped; startup confirmed
+  `mcp_enabled=true`.
+- `git diff --check`: passed.
+
+No upstream, gateway, domain client, or UI behavior was changed. These corrections
+are committed locally only; they were not pushed.

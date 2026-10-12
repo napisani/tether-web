@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -61,12 +62,74 @@ func readWindow(ctx context.Context, session *mcp.ClientSession, uri string) (wi
 	return w, nil
 }
 
+// Options controls acknowledgment and silence deadlines, not total lifetime.
+type Options struct {
+	// AcknowledgmentTimeout covers request headers and the first SSE acknowledgment.
+	// Zero uses ten seconds.
+	AcknowledgmentTimeout time.Duration
+	// IdleTimeout bounds silence, not total lifetime. Zero uses 45 seconds,
+	// longer than the server's 15-second SSE keepalive interval.
+	IdleTimeout time.Duration
+}
+
 // Run subscribes before taking a baseline. enqueue must be bounded and must not
 // perform automatic actions: message observations can be outgoing or backfill.
 // Errors, stream loss, and gaps require the host to re-baseline, not replay work.
 func Run(ctx context.Context, endpoint string, httpClient *http.Client, session *mcp.ClientSession, ready func(), enqueue func(Work) error) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	return RunWithOptions(ctx, endpoint, httpClient, session, ready, enqueue, Options{})
+}
+
+// RunWithOptions preserves an unlimited healthy stream lifetime.
+func RunWithOptions(parent context.Context, endpoint string, httpClient *http.Client, session *mcp.ClientSession, ready func(), enqueue func(Work) error, options Options) (retErr error) {
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
+	timeout := options.AcknowledgmentTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	ackTimeout := errors.New("listen acknowledgment timeout; re-baseline required")
+	idleTimeout := errors.New("listen idle timeout; re-baseline required")
+	idleDuration := options.IdleTimeout
+	if idleDuration <= 0 {
+		idleDuration = 45 * time.Second
+	}
+	// Serialize deadline changes and expiry. An already-running timer callback
+	// rechecks the deadline, so Reset cannot race into canceling a healthy stream.
+	var timerMu sync.Mutex
+	deadline, reason := time.Now().Add(timeout), ackTimeout
+	stopped := false
+	var timer *time.Timer
+	timerMu.Lock()
+	timer = time.AfterFunc(timeout, func() {
+		timerMu.Lock()
+		defer timerMu.Unlock()
+		if stopped {
+			return
+		}
+		if remaining := time.Until(deadline); remaining > 0 {
+			timer.Reset(remaining)
+			return
+		}
+		cancel(reason)
+	})
+	timerMu.Unlock()
+	defer func() { timerMu.Lock(); stopped = true; timer.Stop(); timerMu.Unlock() }()
+	touchIdle := func() {
+		timerMu.Lock()
+		defer timerMu.Unlock()
+		if ctx.Err() != nil {
+			return
+		}
+		deadline, reason = time.Now().Add(idleDuration), idleTimeout
+		timer.Reset(idleDuration)
+	}
+	defer func() {
+		if parent.Err() != nil {
+			retErr = nil
+		} else if context.Cause(ctx) == ackTimeout || context.Cause(ctx) == idleTimeout {
+			retErr = context.Cause(ctx)
+		}
+	}()
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "subscriptions/listen", "params": map[string]any{
 		"_meta":         map[string]any{mcp.MetaKeyProtocolVersion: "2026-07-28", mcp.MetaKeyClientCapabilities: map[string]any{}},
 		"notifications": map[string]any{"resourceSubscriptions": []string{MessagesURI, CallsURI}},
@@ -92,6 +155,9 @@ func Run(ctx context.Context, endpoint string, httpClient *http.Client, session 
 	cursors := make(map[string]window, 2)
 	acked := false
 	for scanner.Scan() {
+		if acked {
+			touchIdle()
+		} // SSE comments and blank lines are transport activity.
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue
@@ -113,6 +179,7 @@ func Run(ctx context.Context, endpoint string, httpClient *http.Client, session 
 			if event.Method != "notifications/subscriptions/acknowledged" {
 				return errors.New("listen acknowledgment was not first")
 			}
+			touchIdle()
 			for _, uri := range []string{MessagesURI, CallsURI} {
 				w, err := readWindow(ctx, session, uri)
 				if err != nil {

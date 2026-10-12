@@ -25,15 +25,16 @@ type changeWindow struct {
 	Observations     []changeObservation `json:"observations"`
 }
 type changeObservation struct {
-	Revision               uint64 `json:"revision"`
-	Kind                   string `json:"kind"`
-	ThreadID               string `json:"thread_id,omitempty"`
-	Handle                 string `json:"handle,omitempty"`
-	Outgoing               bool   `json:"outgoing,omitempty"`
-	Path                   string `json:"path,omitempty"`
-	State                  string `json:"state,omitempty"`
-	InitialSynchronization bool   `json:"initial_synchronization,omitempty"`
-	Read                   *bool  `json:"read,omitempty"`
+	Revision               uint64   `json:"revision"`
+	Kind                   string   `json:"kind"`
+	ThreadID               string   `json:"thread_id,omitempty"`
+	Handle                 string   `json:"handle,omitempty"`
+	Handles                []string `json:"handles,omitempty"`
+	Outgoing               bool     `json:"outgoing,omitempty"`
+	Path                   string   `json:"path,omitempty"`
+	State                  string   `json:"state,omitempty"`
+	InitialSynchronization bool     `json:"initial_synchronization,omitempty"`
+	Read                   *bool    `json:"read,omitempty"`
 }
 type changeState struct {
 	changeWindow
@@ -205,9 +206,9 @@ func (t *Set) observeChanges(event gateway.Event, command string) {
 				return
 			}
 		}
-		for _, handle := range input.Handles {
-			messages.append(changeObservation{Kind: "read_status_observed", Handle: handle, Read: input.Read})
-		}
+		// Success is aggregate (changed > 0), not confirmation for each handle
+		// or proof that the phone synchronized. Preserve the requested batch only.
+		messages.append(changeObservation{Kind: "read_status_reported", Handles: slices.Clone(input.Handles), Read: input.Read})
 		return
 	}
 	if command != "bt_message" || !messages.Available {

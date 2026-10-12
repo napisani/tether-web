@@ -180,17 +180,23 @@ func TestBoundedChangeWindowAdvertisesCursorGap(t *testing.T) {
 		t.Fatal("eviction did not advertise gap")
 	}
 }
-func TestReadStatusInvalidatesOnlySuccessfulIdentifiableMutation(t *testing.T) {
+func TestReadStatusReportsAggregateSuccessWithoutPerHandleClaims(t *testing.T) {
 	set, _ := readySet(t)
 	before := changeJSON(t, set, MessagesChangesURI)
 	changeEvent(t, set, `{"command":"bt_message_read","handles":["h"],"read":true,"success":false}`)
 	if w := changeJSON(t, set, MessagesChangesURI); w["revision"] != before["revision"] {
 		t.Fatal("failed write looked like mutation")
 	}
-	changeEvent(t, set, `{"command":"bt_message_read","handles":["h"],"read":true,"success":true}`)
+	// The daemon reports changed > 0 for the batch, including stale requested handles.
+	changeEvent(t, set, `{"command":"bt_message_read","handles":["valid","stale"],"read":true,"success":true}`)
 	w := changeJSON(t, set, MessagesChangesURI)
-	if w["revision"] == before["revision"] || w["observations"].([]any)[0].(map[string]any)["handle"] != "h" {
-		t.Fatalf("successful read mutation missing: %v", w)
+	observations := w["observations"].([]any)
+	if len(observations) != 1 {
+		t.Fatalf("batch acknowledgment expanded into individual claims: %v", w)
+	}
+	o := observations[0].(map[string]any)
+	if w["revision"] == before["revision"] || o["kind"] != "read_status_reported" || o["handle"] != nil || fmt.Sprint(o["handles"]) != "[valid stale]" || o["read"] != true {
+		t.Fatalf("aggregate batch report missing: %v", w)
 	}
 }
 func TestChangeReadCannotExposePriorGeneration(t *testing.T) {

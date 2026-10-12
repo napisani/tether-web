@@ -39,12 +39,17 @@ func validateListenEnvelope(body []byte) ([]byte, error) {
 }
 
 // SDK v1.8 registers resource subscriptions before writing the acknowledgment.
-// Drop invalidations until that acknowledgment has entered the stream. A client
-// MUST subscribe-before-read: its baseline read recovers these coalesced changes.
+// Retain coalesced invalidations until acknowledgment sending returns. The SDK
+// can flush the acknowledgment before returning: a client's baseline may already
+// have completed, so dropping updates in that interval would lose observations.
 // This keeps daemon reduction and other clients independent of slow stream I/O.
 func installAcknowledgmentGate(server *mcp.Server) {
 	var mu sync.Mutex
-	ready := make(map[mcp.Session]bool)
+	type gate struct {
+		ready   bool
+		pending map[string]mcp.Request
+	}
+	ready := make(map[mcp.Session]*gate)
 	server.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if method != "subscriptions/listen" {
@@ -52,7 +57,7 @@ func installAcknowledgmentGate(server *mcp.Server) {
 			}
 			session := req.GetSession()
 			mu.Lock()
-			ready[session] = false
+			ready[session] = &gate{pending: make(map[string]mcp.Request, 2)}
 			mu.Unlock()
 			defer func() { mu.Lock(); delete(ready, session); mu.Unlock() }()
 			return next(ctx, method, req)
@@ -63,19 +68,38 @@ func installAcknowledgmentGate(server *mcp.Server) {
 			session := req.GetSession()
 			if method == "notifications/resources/updated" {
 				mu.Lock()
-				acked := ready[session]
+				g := ready[session]
+				if g != nil && !g.ready {
+					params := req.GetParams().(*mcp.ResourceUpdatedNotificationParams)
+					if validateChangeURI(params.URI) == nil {
+						g.pending[params.URI] = req
+					}
+					mu.Unlock()
+					return nil, nil
+				}
 				mu.Unlock()
-				if !acked {
+				if g == nil {
 					return nil, nil
 				}
 			}
 			result, err := next(ctx, method, req)
 			if method == "notifications/subscriptions/acknowledged" && err == nil {
 				mu.Lock()
-				if _, active := ready[session]; active {
-					ready[session] = true
+				var pending map[string]mcp.Request
+				if g := ready[session]; g != nil {
+					g.ready = true
+					pending = g.pending
+					g.pending = nil
 				}
 				mu.Unlock()
+				// Never hold the shared gate lock during stream I/O.
+				for _, uri := range []string{"tether://messages/changes", "tether://calls/changes"} {
+					if update := pending[uri]; update != nil {
+						if _, sendErr := next(ctx, "notifications/resources/updated", update); sendErr != nil {
+							return result, sendErr
+						}
+					}
+				}
 			}
 			return result, err
 		}
