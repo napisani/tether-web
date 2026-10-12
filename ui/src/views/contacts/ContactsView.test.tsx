@@ -26,6 +26,34 @@ function model(partial: Partial<Contacts["state"]> = {}): Contacts {
 }
 
 describe("Contacts view", () => {
+  it("marks favorites accessibly without reordering daemon results", () => {
+    render(
+      <ContactsView
+        contacts={model({
+          contacts: [
+            { name: "Zoe", addresses: [], favorite: true },
+            { name: "Ada", addresses: [], favorite: false },
+            { name: "Legacy", addresses: [] },
+          ],
+        })}
+        daemonConnected
+        available
+        onMessage={() => {}}
+        onOpenDevices={() => {}}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Favorite" })).toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("listitem")
+        .slice(0, 3)
+        .map((entry) => entry.textContent),
+    ).toEqual([
+      expect.stringContaining("Zoe"),
+      expect.stringContaining("Ada"),
+      expect.stringContaining("Legacy"),
+    ]);
+  });
   it("filters accents, shows grouped addresses and hands daemon keys to Messages", () => {
     const onMessage = vi.fn<(thread: string, name: string) => void>();
     render(

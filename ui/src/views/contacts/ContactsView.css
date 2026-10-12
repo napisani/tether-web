@@ -95,6 +95,8 @@
   cursor: pointer;
 }
 
+.contacts-view .contact-card summary .contact-favorite { color: var(--color-accent); }
+
 .contact-card summary span {
   font-size: 0.875rem;
 }

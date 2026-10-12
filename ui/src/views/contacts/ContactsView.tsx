@@ -32,6 +32,11 @@ function ContactCard({
       <details className="contact-card">
         <summary>
           <strong>{name}</strong>
+          {contact.favorite === true && (
+            <span className="contact-favorite" role="img" aria-label="Favorite" title="Favorite">
+              ★
+            </span>
+          )}
           <span>
             {contact.addresses.length} {contact.addresses.length === 1 ? "address" : "addresses"}
           </span>

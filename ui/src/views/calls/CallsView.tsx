@@ -35,6 +35,7 @@ function networkStatus(status: Calls["state"]["status"]) {
 
 function CallRow({ call, calls }: { call: PhoneCall; calls: Calls }) {
   const label = call.withheld ? "Withheld number" : call.name || call.number || "Unknown caller";
+
   const state = callStateLabel(call.state || "");
 
   const pendingCall = Object.values(calls.state.pending).some(
@@ -89,7 +90,9 @@ function CallControls({ calls, ready }: { calls: Calls; ready: boolean }) {
   const { state } = calls;
   const network = networkStatus(state.status);
   const audio = state.status?.audio || "";
+
   const inCall = state.calls.some((call) => call.connected && call.state !== "disconnected");
+
   const dialPending = state.pending.dial;
 
   return (
@@ -154,6 +157,87 @@ function CallControls({ calls, ready }: { calls: Calls; ready: boolean }) {
   );
 }
 
+function RecentCalls({ calls, ready }: { calls: Calls; ready: boolean }) {
+  const history = calls.history;
+
+  if (history.kind === "loading")
+    return (
+      <p className="calls-empty" role="status">
+        Loading recent calls…
+      </p>
+    );
+
+  if (history.kind === "unavailable")
+    return (
+      <p className="calls-guidance" role="status">
+        Recent calls unavailable. {history.reason}
+      </p>
+    );
+
+  if (history.kind === "empty")
+    return (
+      <p className="calls-empty" role="status">
+        No recent calls returned. This may mean there are no recent calls, or Phone Recents sync is
+        unsupported or disabled on your iPhone. tetherd cannot distinguish these cases.
+      </p>
+    );
+
+  return (
+    <section aria-labelledby="recent-calls-heading">
+      <h2 id="recent-calls-heading">Recent calls</h2>
+      <ul className="calls-list" aria-label="Recent calls">
+        {history.calls.map((entry, index) => {
+          const caller = entry.name || entry.number || "Unknown caller";
+
+          const kind =
+            entry.type === "missed"
+              ? "Missed"
+              : entry.type === "dialed"
+                ? "Outgoing"
+                : entry.type === "received"
+                  ? "Incoming"
+                  : entry.type || "Incoming";
+
+          const date = new Date(entry.timestamp * 1000);
+
+          const validDate = entry.timestamp > 0 && Number.isFinite(date.getTime());
+
+          return (
+            <li
+              className="call-row call-history"
+              key={`${entry.number}:${entry.timestamp}:${index}`}
+            >
+              <div className="call-identity">
+                <strong className={entry.type === "missed" ? "call-missed" : undefined}>
+                  {caller}
+                </strong>
+                <span>
+                  {kind}
+                  {entry.name && entry.number ? ` — ${entry.number}` : ""}
+                </span>
+                {validDate && <time dateTime={date.toISOString()}>{date.toLocaleString()}</time>}
+              </div>
+              <button
+                type="button"
+                aria-label={`Call back ${caller}`}
+                disabled={
+                  !ready ||
+                  !entry.number.trim() ||
+                  entry.number.length > 256 ||
+                  Boolean(calls.state.pending.dial)
+                }
+                onClick={() => calls.sendAction("dial", "", entry.number)}
+              >
+                Call back
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 export function CallsView({
   calls,
   daemonConnected,
@@ -170,6 +254,7 @@ export function CallsView({
   onRetryCapability: () => void;
 }) {
   const { state } = calls;
+
   const ready = daemonConnected && available && state.status?.available === true;
 
   return (
@@ -232,9 +317,7 @@ export function CallsView({
                 ))}
               </ul>
             ) : (
-              <p className="calls-empty" role="status">
-                {!ready ? "No calls to show." : state.loaded ? "No calls." : "Loading calls…"}
-              </p>
+              <RecentCalls calls={calls} ready={ready} />
             )}
           </>
         )}

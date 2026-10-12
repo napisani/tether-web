@@ -15,6 +15,7 @@ const (
 
 type contactItem struct {
 	Name      string   `json:"name"`
+	Favorite  *bool    `json:"favorite,omitempty"`
 	Addresses []string `json:"addresses"`
 }
 

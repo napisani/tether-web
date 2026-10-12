@@ -175,6 +175,28 @@ Each tool reports unavailable features the way the web UI does: when the phone
 profile is closed or `tetherd` does not advertise a capability, the tool refuses
 and names the reason, and sends nothing.
 
+### Recent calls and favorite contacts
+
+`list_calls` retains `calls` and `status` and adds a bounded `history` object:
+`calls` (at most 100 entries with `number`, `name`, `type`, Unix-seconds `timestamp`),
+`truncated`, `availability`, and an optional `reason`. Availability is a client
+interpretation, **not** a field sent by tetherd:
+
+- `available`: a nonempty PBAP snapshot was observed, not proof of a durable log.
+- `unknown`: an empty snapshot; no recent calls, unsupported Phone Recents sync,
+  disabled sync or a not-yet-populated cache cannot be distinguished upstream.
+- `unavailable`: PBAP is closed, the request failed, or an older daemon did not reply.
+
+History reads require PBAP, not HFP. With PBAP open but HFP absent, live `calls`
+is empty and `status` explains call-control availability. With neither service
+available the tool refuses. Disconnect during the lookup fails rather than
+returning an earlier generation's data. A history failure does not hide live calls.
+`search_contacts` preserves daemon favorite-first order and includes optional
+`favorite` metadata; absent means the daemon did not provide it, not confirmed false.
+Use existing `dial_call` to call back a returned number, with the usual
+`instance_id`, unique `request_key`, and unknown-outcome safeguards. No new tools,
+commands beyond upstream `bt_list_call_history`, or gateway routes are introduced.
+
 ### Action outcomes
 
 Starting an action returns an `operation_id` and a status. Call `get_operation`

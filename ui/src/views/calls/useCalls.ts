@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallHistory } from "./useCallHistory";
 import { sendDaemonCommand } from "../../daemon/DaemonClient";
 import type {
   CallActionCommand,
@@ -9,7 +10,11 @@ import type {
 
 type CallAction = "dial" | CallActionCommand["action"];
 
-type PendingAction = { action: CallAction; path: string; status: "waiting" | "uncertain" };
+type PendingAction = {
+  action: CallAction;
+  path: string;
+  status: "waiting" | "uncertain";
+};
 
 export type CallsState = {
   calls: PhoneCall[];
@@ -71,6 +76,10 @@ function canSendAction(action: CallAction, path: string, value: CallsState) {
 }
 
 export function useCalls(visible: boolean) {
+  const history = useCallHistory(visible);
+
+  const { handleEvent: handleHistoryEvent, handleDisconnect: disconnectHistory } = history;
+
   const [state, setState] = useState<CallsState>(initialState);
   const current = useRef(state);
   const visibleRef = useRef(visible);
@@ -138,7 +147,8 @@ export function useCalls(visible: boolean) {
   const handleDisconnect = useCallback(() => {
     online.current = false;
     resetConnection("Calls are not connected.");
-  }, [resetConnection]);
+    disconnectHistory();
+  }, [resetConnection, disconnectHistory]);
 
   const applyCallList = useCallback(
     (calls: PhoneCall[]) => {
@@ -206,6 +216,8 @@ export function useCalls(visible: boolean) {
 
   const handleEvent = useCallback(
     (event: DaemonEvent) => {
+      handleHistoryEvent(event);
+
       switch (event.command) {
         case "gateway_status":
           online.current = event.daemon_connected;
@@ -223,7 +235,7 @@ export function useCalls(visible: boolean) {
           break;
       }
     },
-    [applyCallList, applyConnectionStatus, refresh],
+    [applyCallList, applyConnectionStatus, refresh, handleHistoryEvent],
   );
 
   useEffect(
@@ -245,12 +257,14 @@ export function useCalls(visible: boolean) {
       ),
     }));
 
-  const sendAction = (action: CallAction, path = "") => {
-    const value = current.current;
+  const sendAction = (action: CallAction, path = "", dialNumber = current.current.number) => {
+    const value = { ...current.current, number: dialNumber };
 
     if (!online.current || !canSendAction(action, path, value)) return;
     const key = callActionKey(action, path);
     const number = value.number.trim();
+
+    if (action === "dial") setNumber(number);
 
     change((previous) => ({
       ...previous,
@@ -291,5 +305,17 @@ export function useCalls(visible: boolean) {
     });
   };
 
-  return { state, setNumber, sendAction, resolveUncertain, refresh, handleEvent, handleDisconnect };
+  return {
+    state,
+    history: history.state,
+    setNumber,
+    sendAction,
+    resolveUncertain,
+    refresh: () => {
+      refresh();
+      history.refresh();
+    },
+    handleEvent,
+    handleDisconnect,
+  };
 }
