@@ -361,7 +361,7 @@ func TestAuthenticatedHistoryAndFavoriteSchemas(t *testing.T) {
 	session := connect(t, server, credentials)
 	awaitStatus(t, session, func(value status) bool { return value.MetadataReady })
 	wire.emit(t, map[string]any{"command": "protocol_info", "version": 1, "capabilities": []string{"calls", "contacts"}})
-	wire.emit(t, map[string]any{"command": "bt_connection_changed", "pbap_open": true, "calls": map[string]any{"available": true}})
+	wire.emit(t, map[string]any{"command": "bt_connection_changed", "map_open": false, "pbap_open": true, "calls": map[string]any{"available": true}})
 	awaitStatus(t, session, func(value status) bool { return value.Connection != nil && value.Connection.PBAPOpen })
 	listed, err := session.ListTools(t.Context(), nil)
 	if err != nil {
