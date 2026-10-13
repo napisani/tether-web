@@ -33,6 +33,7 @@ type daemonCommand struct {
 }
 
 type fakeDaemon struct {
+	agent       *mcpserver.Server
 	mu          sync.Mutex
 	connections map[net.Conn]struct{}
 	messages    chan daemonCommand
@@ -41,6 +42,8 @@ type fakeDaemon struct {
 	mapOpen     atomic.Bool
 
 	retentionMode string
+	calls         []map[string]any
+	callReads     chan struct{}
 }
 
 type status struct {
@@ -76,7 +79,7 @@ func startServer(t *testing.T, auth *gateway.BasicCredentials) (*fakeDaemon, *ht
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire := &fakeDaemon{connections: make(map[net.Conn]struct{}), messages: make(chan daemonCommand, 32), retention: make(chan daemonCommand, 32), files: make(chan daemonCommand, 32)}
+	wire := &fakeDaemon{callReads: make(chan struct{}, 32), connections: make(map[net.Conn]struct{}), messages: make(chan daemonCommand, 32), retention: make(chan daemonCommand, 32), files: make(chan daemonCommand, 32)}
 	wire.mapOpen.Store(true)
 	var daemonWork sync.WaitGroup
 	daemonWork.Add(1)
@@ -118,11 +121,20 @@ func startServer(t *testing.T, auth *gateway.BasicCredentials) (*fakeDaemon, *ht
 					case "send_file":
 						wire.files <- command
 					case "bt_list_calls":
-						wire.emit(t, map[string]any{"command": "bt_calls", "calls": []any{}})
+						wire.mu.Lock()
+						calls := wire.calls
+						if calls == nil {
+							calls = []map[string]any{}
+						}
+						wire.mu.Unlock()
+						wire.emit(t, map[string]any{"command": "bt_calls", "calls": calls})
+						wire.callReads <- struct{}{}
 					case "bt_list_call_history":
 						wire.emit(t, map[string]any{"command": "bt_call_history", "calls": []map[string]any{{"number": "123", "name": "Ada", "type": "missed", "timestamp": 123}}})
 					case "bt_list_contacts":
 						wire.emit(t, map[string]any{"command": "bt_contacts", "query": "", "contacts": []map[string]any{{"name": "Ada", "addresses": []string{"tel:123"}, "favorite": true}}})
+					case "bt_list_messages":
+						wire.emit(t, map[string]any{"command": "bt_messages", "thread": command.Thread, "messages": []map[string]any{{"handle": "m-review", "body": "untrusted content", "outgoing": false}}})
 					case "bt_list_threads":
 						wire.emit(t, map[string]any{"command": "bt_threads", "threads": []map[string]any{{"thread": "tel:+15550100", "name": "Alex", "repliable": true}}})
 					case "bt_set_retention":
@@ -146,6 +158,7 @@ func startServer(t *testing.T, auth *gateway.BasicCredentials) (*fakeDaemon, *ht
 		_ = listener.Close()
 		t.Fatal(err)
 	}
+	wire.agent = agent
 	busDone := make(chan struct{})
 	agentDone := make(chan error, 1)
 	go func() { defer close(busDone); bus.Run(ctx) }()
@@ -222,7 +235,7 @@ func connect(t *testing.T, server *httptest.Server, credentials *gateway.BasicCr
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-agent", Version: "test"}, nil)
 	session, err := client.Connect(t.Context(), &mcp.StreamableClientTransport{
 		Endpoint: server.URL + "/mcp", HTTPClient: httpClient, MaxRetries: -1, DisableStandaloneSSE: true,
-	}, nil)
+	}, &mcp.ClientSessionOptions{ProtocolVersion: "2025-06-18"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +361,7 @@ func TestAuthenticatedHistoryAndFavoriteSchemas(t *testing.T) {
 	session := connect(t, server, credentials)
 	awaitStatus(t, session, func(value status) bool { return value.MetadataReady })
 	wire.emit(t, map[string]any{"command": "protocol_info", "version": 1, "capabilities": []string{"calls", "contacts"}})
-	wire.emit(t, map[string]any{"command": "bt_connection_changed", "pbap_open": true, "calls": map[string]any{"available": true}})
+	wire.emit(t, map[string]any{"command": "bt_connection_changed", "map_open": false, "pbap_open": true, "calls": map[string]any{"available": true}})
 	awaitStatus(t, session, func(value status) bool { return value.Connection != nil && value.Connection.PBAPOpen })
 	listed, err := session.ListTools(t.Context(), nil)
 	if err != nil {
