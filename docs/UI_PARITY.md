@@ -64,13 +64,33 @@ its ownership should still make the GTK/Web relationship obvious.
 | Devices | Partial | Wi-Fi discovery, trust, connection state, forget flow, mDNS/firewall guidance, sequential browser multi-file sending with batch progress/cancellation; Bluetooth discovery, pairing, supervision, host setup guidance, permission solicitation, and profile diagnostics; complete AirPods controls | Send Clipboard (deferred pending app-wide security review and a trustworthy completion signal); physical-phone/hardware validation |
 | Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, app-wide unread refresh and disconnect clearing, responsive navigation; user-validated on a physical phone | Broader device/permission matrix |
 | Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation, opt-in redacted browser alerts | Physical-phone ANCS validation |
-| Calls | Partial | HFP availability, live call list, dial/answer/decline/hang up, daemon-host/iPhone audio routing, network indicators, withheld numbers, reconnect and uncertain-outcome handling | Physical-phone HFP validation, contact completion, persistent call history (not supplied by daemon) |
-| Contacts | Implemented locally | PBAP-gated bounded address-book refresh, accent-insensitive name/address search, expandable phone/email details, copy and namespaced message-thread handoff, unavailable/error/reconnect states, responsive layout | Physical-phone PBAP validation |
+| Calls | Partial | HFP availability, live call list, PBAP recent history (up to 100) with callback, dial/answer/decline/hang up, daemon-host/iPhone audio routing, network indicators, withheld numbers, reconnect and uncertain-outcome handling | Physical-phone HFP validation, contact completion, persistent call history (upstream PBAP history is memory-only) |
+| Contacts | Implemented locally | PBAP-gated bounded address-book refresh, accessible favorite markers and daemon favorite-first ordering, accent-insensitive name/address search, expandable phone/email details, copy and namespaced message-thread handoff, unavailable/error/reconnect states, responsive layout | Physical-phone PBAP validation |
 | Settings | Implemented locally | Daemon-global ANCS mirroring/content, call-control and retention controls; authoritative status, destructive-storage confirmation, keyring/privacy guidance, uncertain-outcome handling and reconnect cleanup; links to Devices for Bluetooth supervision | Headless/browser-inapplicable desktop tray, host desktop popups and away-lock documented below; physical-phone validation |
 | Shared helpers | Partial | Message formatting and contact suggestions in Messages; contact-to-message handoff; versioned browser-only alert preference | App-wide contact completion (where a browser flow needs it) |
 
 Update this table whenever either client gains or intentionally changes a
 user-visible capability.
+
+## Recent calls and favorites (v0.2.36)
+
+Implemented against upstream [PR #234](https://github.com/zackb/tether/pull/234),
+commit [`1dc52a4c120e3b5dca81bdf9943c5d7da6508381`](https://github.com/zackb/tether/commit/1dc52a4c120e3b5dca81bdf9943c5d7da6508381).
+Calls displays live calls first, otherwise up to 100 PBAP recent calls with caller,
+call type and local timestamp. History refreshes on visibility, explicit refresh
+and PBAP reconnect; daemon history broadcasts update it after observed call end.
+HFP availability controls callback, not history reads. Callback uses the existing
+uncorrelated dial flow and remains blocked until the user checks uncertain outcomes.
+History and pending refreshes clear on PBAP/daemon loss; older silent daemons time out.
+
+Unlike GTK's empty status, the browser explains that an empty history snapshot
+cannot prove there are no recent calls: upstream emits only `calls`, with no
+history availability/sync flag. PBAP can be open while Phone Recents sync is
+unsupported or disabled. The web does not invent a daemon field or capability.
+History is memory-only upstream, not a durable log. Contacts preserve daemon
+ordering (favorites first), mark true favorites accessibly, and accept absent/false
+metadata from older daemons. Favorites are not independently sorted by the browser.
+Physical-phone PBAP/HFP validation remains separate from fake-daemon tests.
 
 ## Delivery sequence
 

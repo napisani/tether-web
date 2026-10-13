@@ -33,6 +33,8 @@ let phoneNotifications = [];
 
 let phoneCalls = [];
 
+let recentCalls = [];
+
 const phone = {
   address: "40:F6:64:3D:7A:F1",
   name: "40-F6-64-3D-7A-F1",
@@ -203,6 +205,9 @@ function resetNotificationScenario(withMessages, withNotifications) {
 }
 
 function resetCallsScenario(withCalls) {
+  recentCalls = withCalls
+    ? [{ name: "Recent Grace", number: "+15550103", type: "missed", timestamp: 1700000000 }]
+    : [];
   phoneCalls = withCalls
     ? [
         { path: "/call/1", name: "Ada", number: "+15550102", state: "incoming", ringing: true },
@@ -232,8 +237,8 @@ function resetCallsScenario(withCalls) {
 function resetContactsScenario(withContacts) {
   phoneContacts = withContacts
     ? [
-        { name: "Ada", addresses: ["tel:+15550102", "email:ada@example.com"] },
-        { name: "Grace", addresses: ["tel:+15550103"] },
+        { name: "Grace", addresses: ["tel:+15550103"], favorite: true },
+        { name: "Ada", addresses: ["tel:+15550102", "email:ada@example.com"], favorite: false },
       ]
     : [];
 
@@ -566,6 +571,8 @@ const commandHandlers = {
     }, 10),
   bt_list_notifications: () =>
     later(() => publish({ command: "bt_notifications", notifications: phoneNotifications }), 10),
+  bt_list_call_history: () =>
+    later(() => publish({ command: "bt_call_history", calls: recentCalls }), 10),
   bt_list_calls: () => later(() => publish({ command: "bt_calls", calls: phoneCalls }), 10),
   bt_call_dial: (command) =>
     later(() => {

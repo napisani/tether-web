@@ -46,17 +46,116 @@ afterEach(() => {
 });
 
 describe("Calls view", () => {
+  it("explains empty history ambiguity and displays PBAP history without HFP", () => {
+    render(<TetherApp />);
+    connect();
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: true,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_connection_changed",
+        pbap_open: true,
+        calls: { available: false },
+      }),
+    );
+    act(() => FakeEventSource.current.emit({ command: "bt_call_history", calls: [] }));
+    expect(
+      screen.getByText(/Phone Recents sync is unsupported or disabled/),
+    ).toBeInTheDocument();
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_call_history",
+        calls: [{ number: "123", name: "PBAP caller", type: "dialed", timestamp: 0 }],
+      }),
+    );
+    expect(screen.getByRole("list", { name: "Recent calls" })).toHaveTextContent("Outgoing");
+    expect(screen.getByRole("button", { name: "Call back PBAP caller" })).toBeDisabled();
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_connection_changed",
+        pbap_open: false,
+        pbap_error: "Phone Book denied",
+      }),
+    );
+    expect(screen.getByText(/Recent calls unavailable.*Phone Book denied/)).toBeInTheDocument();
+    expect(screen.queryByText("PBAP caller")).not.toBeInTheDocument();
+  });
+  it("shows recent callers only without live calls and callbacks use the guarded dial", () => {
+    render(<TetherApp />);
+    connect();
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: true,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Calls" }));
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_connection_changed",
+        pbap_open: true,
+        calls: { available: true },
+      }),
+    );
+    expect(screen.getByText("Loading recent calls…")).toBeInTheDocument();
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_call_history",
+        calls: [
+          {
+            number: "123",
+            name: "History Ada",
+            type: "missed",
+            timestamp: 1700000000,
+          },
+          { number: "", name: "Unknown caller", type: "future", timestamp: 0 },
+        ],
+      }),
+    );
+    expect(screen.getByRole("list", { name: "Recent calls" })).toHaveTextContent("Missed");
+    expect(screen.getByRole("button", { name: "Call back Unknown caller" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Call back History Ada" }));
+    expect(commands()).toContainEqual({
+      command: "bt_call_dial",
+      number: "123",
+    });
+    expect(screen.getByRole("button", { name: "Call back History Ada" })).toBeDisabled();
+    act(() =>
+      FakeEventSource.current.emit({
+        command: "bt_calls",
+        calls: [{ path: "/call/1", name: "Live caller", state: "active" }],
+      }),
+    );
+    expect(screen.queryByRole("list", { name: "Recent calls" })).not.toBeInTheDocument();
+    act(() => FakeEventSource.current.emit({ command: "bt_calls", calls: [] }));
+    expect(screen.getByRole("list", { name: "Recent calls" })).toBeInTheDocument();
+  });
   it("hides Calls until host opt-in and then explains HFP availability", () => {
     render(<TetherApp />);
     connect(false);
     act(() =>
-      FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: false }),
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: false,
+      }),
     );
     expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
     expect(commands()).not.toContainEqual({ command: "bt_list_calls" });
     expect(commands()).toContainEqual({ command: "protocol_info" });
     act(() =>
-      FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }),
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: true,
+      }),
     );
     expect(commands().filter((command) => command.command === "protocol_info")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Calls" }));
@@ -84,10 +183,16 @@ describe("Calls view", () => {
     connect(false);
     vi.mocked(fetch).mockRejectedValueOnce(new Error("gateway unavailable"));
     await act(async () =>
-      FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }),
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: true,
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Calls" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Could not refresh Calls availability.");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not refresh Calls availability.",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Retry availability" }));
     await act(async () => {});
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -98,7 +203,11 @@ describe("Calls view", () => {
     render(<TetherApp />);
     connect();
     act(() =>
-      FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }),
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: true,
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     act(() => {
@@ -118,7 +227,13 @@ describe("Calls view", () => {
         command: "bt_calls",
         calls: [
           { path: "/call/1", number: "", withheld: true, ringing: true, state: "incoming" },
-          { path: "/call/2", number: "+15550102", name: "Ada", connected: true, state: "active" },
+          {
+            path: "/call/2",
+            number: "+15550102",
+            name: "Ada",
+            connected: true,
+            state: "active",
+          },
         ],
       });
     });
@@ -147,7 +262,13 @@ describe("Calls view", () => {
         command: "bt_calls",
         calls: [
           { path: "/call/1", number: "", withheld: true, connected: true, state: "active" },
-          { path: "/call/2", number: "+15550102", name: "Ada", connected: true, state: "active" },
+          {
+            path: "/call/2",
+            number: "+15550102",
+            name: "Ada",
+            connected: true,
+            state: "active",
+          },
         ],
       }),
     );
@@ -172,7 +293,11 @@ describe("Calls view", () => {
     render(<TetherApp />);
     connect();
     act(() =>
-      FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }),
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: true,
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     act(() =>
@@ -186,7 +311,11 @@ describe("Calls view", () => {
     fireEvent.click(screen.getByRole("button", { name: "Call" }));
     expect(commands()).toContainEqual({ command: "bt_call_dial", number: "+15550100" });
     act(() =>
-      FakeEventSource.current.emit({ command: "bt_call_result", action: "dial", success: true }),
+      FakeEventSource.current.emit({
+        command: "bt_call_result",
+        action: "dial",
+        success: true,
+      }),
     );
     expect(number).toHaveValue("+15550100");
     act(() =>
@@ -196,13 +325,19 @@ describe("Calls view", () => {
       }),
     );
     expect(screen.getByText("Dialing")).toBeInTheDocument();
-    act(() => FakeEventSource.current.emit({ command: "gateway_status", daemon_connected: false }));
+    act(() =>
+      FakeEventSource.current.emit({ command: "gateway_status", daemon_connected: false }),
+    );
     expect(screen.queryByText("Dialing")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Calls" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Devices" })).toBeInTheDocument();
     connect();
     act(() =>
-      FakeEventSource.current.emit({ command: "bt_status", available: true, calls_enabled: true }),
+      FakeEventSource.current.emit({
+        command: "bt_status",
+        available: true,
+        calls_enabled: true,
+      }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Calls" }));
     expect(screen.getByRole("textbox", { name: "Number to call" })).toHaveValue("+15550100");

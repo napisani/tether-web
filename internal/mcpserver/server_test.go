@@ -52,7 +52,8 @@ type status struct {
 		Version string `json:"version"`
 	} `json:"bluetooth"`
 	Connection *struct {
-		MAPOpen bool `json:"map_open"`
+		MAPOpen  bool `json:"map_open"`
+		PBAPOpen bool `json:"pbap_open"`
 	} `json:"connection"`
 }
 
@@ -116,6 +117,12 @@ func startServer(t *testing.T, auth *gateway.BasicCredentials) (*fakeDaemon, *ht
 							"discovered_devices": []any{}, "mdns_available": true, "firewall_active": false})
 					case "send_file":
 						wire.files <- command
+					case "bt_list_calls":
+						wire.emit(t, map[string]any{"command": "bt_calls", "calls": []any{}})
+					case "bt_list_call_history":
+						wire.emit(t, map[string]any{"command": "bt_call_history", "calls": []map[string]any{{"number": "123", "name": "Ada", "type": "missed", "timestamp": 123}}})
+					case "bt_list_contacts":
+						wire.emit(t, map[string]any{"command": "bt_contacts", "query": "", "contacts": []map[string]any{{"name": "Ada", "addresses": []string{"tel:123"}, "favorite": true}}})
 					case "bt_list_threads":
 						wire.emit(t, map[string]any{"command": "bt_threads", "threads": []map[string]any{{"thread": "tel:+15550100", "name": "Alex", "repliable": true}}})
 					case "bt_set_retention":
@@ -332,6 +339,44 @@ func TestServerRegistersTypedToolsBehindAuthentication(t *testing.T) {
 	if !current.DaemonConnected || current.Connection == nil || !current.Connection.MAPOpen ||
 		current.InstanceID == "" || !reflect.DeepEqual(current.Capabilities, []string{"files", "messages", "peers", "settings"}) {
 		t.Fatalf("status = %+v", current)
+	}
+}
+
+func TestAuthenticatedHistoryAndFavoriteSchemas(t *testing.T) {
+	credentials := &gateway.BasicCredentials{Username: "owner", Password: "a-long-private-password"}
+	wire, server := startServer(t, credentials)
+	session := connect(t, server, credentials)
+	awaitStatus(t, session, func(value status) bool { return value.MetadataReady })
+	wire.emit(t, map[string]any{"command": "protocol_info", "version": 1, "capabilities": []string{"calls", "contacts"}})
+	wire.emit(t, map[string]any{"command": "bt_connection_changed", "pbap_open": true, "calls": map[string]any{"available": true}})
+	awaitStatus(t, session, func(value status) bool { return value.Connection != nil && value.Connection.PBAPOpen })
+	listed, err := session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		data, _ := json.Marshal(tool.OutputSchema)
+		if tool.Name == "list_calls" && (!strings.Contains(string(data), "history") || !strings.Contains(string(data), "availability")) {
+			t.Fatalf("history schema absent: %s", data)
+		}
+		if tool.Name == "search_contacts" && !strings.Contains(string(data), "favorite") {
+			t.Fatalf("favorite schema absent: %s", data)
+		}
+	}
+	type callsResult struct {
+		History struct {
+			Availability string
+			Calls        []struct{ Name string }
+		}
+	}
+	calls := callTool[callsResult](t, session, "list_calls", map[string]any{})
+	if calls.History.Availability != "available" || len(calls.History.Calls) != 1 || calls.History.Calls[0].Name != "Ada" {
+		t.Fatalf("history: %+v", calls)
+	}
+	type contactsResult struct{ Contacts []struct{ Favorite *bool } }
+	contacts := callTool[contactsResult](t, session, "search_contacts", map[string]any{"query": ""})
+	if len(contacts.Contacts) != 1 || contacts.Contacts[0].Favorite == nil || !*contacts.Contacts[0].Favorite {
+		t.Fatalf("favorites: %+v", contacts)
 	}
 }
 

@@ -356,7 +356,13 @@ const messageReadEventSchema = open({
 const contactListEventSchema = open({
   command: z.literal("bt_contacts"),
   query: z.string(),
-  contacts: z.array(open({ name: z.string(), addresses: z.array(z.string().min(1)) })),
+  contacts: z.array(
+    open({
+      name: z.string(),
+      addresses: z.array(z.string().min(1)),
+      favorite: optionalBoolean,
+    }),
+  ),
 });
 
 const notificationUid = z.number().int().min(0).max(4_294_967_295);
@@ -463,6 +469,17 @@ export const daemonEventSchema = z.discriminatedUnion("command", [
   newNotificationEventSchema,
   notificationRemovedEventSchema,
   notificationActionResultEventSchema,
+  open({
+    command: z.literal("bt_call_history"),
+    calls: z.array(
+      open({
+        number: z.string(),
+        name: z.string(),
+        type: z.string(),
+        timestamp: z.number().finite().int(),
+      }),
+    ),
+  }),
   callListEventSchema,
   callResultEventSchema,
 ]);
@@ -559,6 +576,7 @@ export const daemonCommandSchema = z.discriminatedUnion("command", [
     action: z.literal("negative"),
   }),
   open({ command: z.literal("protocol_info") }),
+  open({ command: z.literal("bt_list_call_history") }),
   open({ command: z.literal("bt_list_calls") }),
   open({ command: z.literal("bt_call_dial"), number: z.string().min(1).max(256) }),
   open({

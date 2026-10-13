@@ -115,6 +115,10 @@ export type CallListEvent = EventFor<"bt_calls">;
 
 export type PhoneCall = CallListEvent["calls"][number];
 
+export type CallHistoryEvent = EventFor<"bt_call_history">;
+
+export type RecentCall = CallHistoryEvent["calls"][number];
+
 export type CallResultEvent = EventFor<"bt_call_result">;
 
 export type GatewayStatusEvent = EventFor<"gateway_status">;
@@ -182,6 +186,8 @@ export type BluetoothSetAncsCommand = CommandFor<
 >;
 
 export type BluetoothSetRetentionCommand = CommandFor<"bt_set_retention">;
+
+export type ListCallHistoryCommand = CommandFor<"bt_list_call_history">;
 
 export type ListCallsCommand = CommandFor<"bt_list_calls">;
 
