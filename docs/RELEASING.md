@@ -91,6 +91,22 @@ The script needs the same tools as the release script, and `core-image.yml` must
 4. It prints the published platforms and the upstream commit from the image's `org.opencontainers.image.revision` label.
 5. If the version is newer than the one the Compose example pins, it updates the pins in [`deploy/.env.example`](../deploy/.env.example), [`deploy/docker-compose.yml`](../deploy/docker-compose.yml), [`deploy/docker-compose.build.yml`](../deploy/docker-compose.build.yml) and the [deploy guide](../deploy/README.md). It leaves the changes uncommitted for you to review and open as a pull request. `--no-pins` skips this step.
 
+### Publish an exact upstream main snapshot
+
+When a merged upstream fix is not yet in a release, dispatch the workflow directly with both the preceding upstream release tag and a full lowercase commit SHA:
+
+```bash
+gh workflow run core-image.yml --ref ci/core-upstream-snapshot \
+  -f tether_tag=v0.2.40 \
+  -f upstream_commit=549f6eb16084a3b54320fdabedea16b8bba7c970
+```
+
+Use the reviewed workflow ref (or `main` after merge). This builds upstream source without patches, not a fork. The resolver verifies that the commit is on upstream `main`, descends from the base tag, and contains the container changes merged in upstream PR261. The image is named `0.2.40-upstream.549f6eb`, not `0.2.40`: it is an unofficial upstream snapshot, not an upstream release or an experimental/custom-OBEX build. It never changes `latest`, upstream tags, deployment pins, or the web UI image. The full source SHA is recorded in the OCI revision label; `io.tether.upstream.source` identifies the upstream repository, while the standard source label links the publishing repository for GHCR permissions.
+
+Snapshot names are immutable: the resolver refuses to start if the multiarch tag or either architecture tag exists. If only part of a run succeeds, rerun only failed jobs so the successful tested architecture is retained; do not start a new run with the same snapshot name. Both native architecture jobs run upstream tests and runtime smoke checks before pushing.
+
+Run `python3 scripts/test-core-snapshot.py` to check snapshot input validation locally.
+
 ### What the core workflow does
 
 1. The `resolve` job rejects tags that are not plain `vX.Y.Z` or are older than `v0.2.35`. It records the commit the tag points to, so the later jobs build that commit even if the tag moves.
