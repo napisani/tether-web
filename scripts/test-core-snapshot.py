@@ -9,6 +9,12 @@ import unittest
 WORKFLOW = Path(__file__).resolve().parents[1] / '.github/workflows/core-image.yml'
 
 class SnapshotValidation(unittest.TestCase):
+    def test_provenance_uses_version_aware_cli_with_timeout(self):
+        text = WORKFLOW.read_text()
+        step = text.split('      - name: Runtime provenance\n', 1)[1].split('      - name:', 1)[0]
+        self.assertIn('timeout 10 tether --version', step)
+        self.assertNotIn('tetherd --version', step)
+
     def test_malformed_snapshot_rejected_before_network(self):
         text = WORKFLOW.read_text()
         run = text.split('        run: |\n', 1)[1].split('\n  build:', 1)[0]
