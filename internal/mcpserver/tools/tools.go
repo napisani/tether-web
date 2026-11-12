@@ -18,19 +18,25 @@ type Set struct {
 	subscription gateway.Subscription
 	instanceID   string
 
-	mu          sync.Mutex
-	isConnected bool
-	isClosed    bool
-	hasRun      bool
-	generation  uint64
-	protocol    *protocolInfo
-	bluetooth   *bluetoothStatus
-	host        *hostSettings
-	connection  *connectionStatus
-	operations  map[string]*operation
-	requestKeys map[string]string
-	challenges  map[string]*challenge
-	waiters     map[*waiter]struct{}
+	mu               sync.Mutex
+	isConnected      bool
+	isClosed         bool
+	hasRun           bool
+	generation       uint64
+	protocol         *protocolInfo
+	bluetooth        *bluetoothStatus
+	host             *hostSettings
+	connection       *connectionStatus
+	operations       map[string]*operation
+	requestKeys      map[string]string
+	challenges       map[string]*challenge
+	waiters          map[*waiter]struct{}
+	changes          map[string]*changeState
+	changePhone      string
+	changeRetention  string
+	changeSignals    chan struct{}
+	callsSeedSignals chan struct{}
+	changeServer     *mcp.Server
 }
 
 func New(bus gateway.Bus, uploads *gateway.Uploads) (*Set, error) {
@@ -40,14 +46,17 @@ func New(bus gateway.Bus, uploads *gateway.Uploads) (*Set, error) {
 	}
 	return &Set{
 		bus: bus, uploads: uploads, subscription: subscription, instanceID: rand.Text(),
-		generation:  subscription.Snapshot.Generation,
-		isConnected: subscription.Snapshot.DaemonConnected,
-		operations:  make(map[string]*operation), requestKeys: make(map[string]string),
+		generation:       subscription.Snapshot.Generation,
+		changeSignals:    make(chan struct{}, 1),
+		callsSeedSignals: make(chan struct{}, 1),
+		isConnected:      subscription.Snapshot.DaemonConnected,
+		operations:       make(map[string]*operation), requestKeys: make(map[string]string),
 		challenges: make(map[string]*challenge), waiters: make(map[*waiter]struct{}),
 	}, nil
 }
 
 func (t *Set) Register(server *mcp.Server) {
+	t.registerChangeResources(server)
 	t.registerStatusTools(server)
 	t.registerMessageTools(server)
 	t.registerContactTools(server)
@@ -62,7 +71,7 @@ func (t *Set) Register(server *mcp.Server) {
 	t.registerConfirmationTools(server)
 }
 
-func (t *Set) Run(ctx context.Context) error {
+func (t *Set) Run(ctx context.Context, observerStopped func()) error {
 	t.mu.Lock()
 	if t.hasRun || t.isClosed {
 		t.mu.Unlock()
@@ -71,6 +80,16 @@ func (t *Set) Run(ctx context.Context) error {
 	t.hasRun = true
 	t.mu.Unlock()
 	defer t.Close()
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	workerDone := make(chan struct{})
+	go func() { defer close(workerDone); t.runChangeNotifications(workerCtx) }()
+	seedDone := make(chan struct{})
+	go func() { defer close(seedDone); t.runCallsSeed(workerCtx) }()
+	defer func() { cancelWorker(); <-workerDone; <-seedDone }()
+	// Notify the HTTP owner before joining potentially slow notification writes.
+	if observerStopped != nil {
+		defer observerStopped()
+	}
 
 	t.refreshStatus(ctx)
 	ticker := time.NewTicker(time.Second)

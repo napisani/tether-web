@@ -136,6 +136,9 @@ func run() error {
 
 	select {
 	case <-ctx.Done():
+		if agent != nil {
+			agent.Close()
+		}
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return server.Shutdown(shutdownContext)

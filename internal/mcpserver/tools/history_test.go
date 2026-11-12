@@ -38,7 +38,7 @@ func TestHistoryUnavailableAndSilentDaemon(t *testing.T) {
 	p.answers["bt_list_calls"] = func(map[string]any) []map[string]any {
 		return []map[string]any{{"command": "bt_calls", "calls": []any{}}}
 	}
-	p.feed(map[string]any{"command": "bt_connection_changed", "pbap_open": false, "pbap_error": "denied", "calls": map[string]any{"available": true}})
+	p.feed(map[string]any{"command": "bt_connection_changed", "map_open": false, "pbap_open": false, "pbap_error": "denied", "calls": map[string]any{"available": true}})
 	_, result, err := p.set.listCalls(t.Context(), nil, struct{}{})
 	if err != nil || result.History.Availability != "unavailable" || !strings.Contains(result.History.Reason, "denied") || p.count("bt_list_call_history") != 0 {
 		t.Fatalf("PBAP: %+v %v", result.History, err)
@@ -85,7 +85,7 @@ func TestHistoryLinkLossCannotReturnContent(t *testing.T) {
 	}
 	p.answers["bt_list_call_history"] = func(map[string]any) []map[string]any {
 		return []map[string]any{
-			{"command": "bt_connection_changed", "pbap_open": false, "calls": map[string]any{"available": true}},
+			{"command": "bt_connection_changed", "map_open": false, "pbap_open": false, "calls": map[string]any{"available": true}},
 			{"command": "bt_call_history", "calls": []map[string]any{{"name": "stale", "number": "123", "type": "missed", "timestamp": 123}}},
 		}
 	}
@@ -96,7 +96,7 @@ func TestHistoryLinkLossCannotReturnContent(t *testing.T) {
 }
 func TestHistoryWithoutHFP(t *testing.T) {
 	p := newParity(t)
-	p.feed(map[string]any{"command": "bt_connection_changed", "pbap_open": true, "calls": map[string]any{"available": false}})
+	p.feed(map[string]any{"command": "bt_connection_changed", "map_open": false, "pbap_open": true, "calls": map[string]any{"available": false}})
 	p.answers["bt_list_call_history"] = func(map[string]any) []map[string]any {
 		return []map[string]any{{"command": "bt_call_history", "calls": []any{}}}
 	}
@@ -175,7 +175,7 @@ func TestLiveTransportFailureWithHFPLossIsNotSwallowed(t *testing.T) {
 	p := newParity(t)
 	transportErr := errors.New("broken transport")
 	p.bus.onSend = func(json.RawMessage) error {
-		p.feed(map[string]any{"command": "bt_connection_changed", "pbap_open": true, "calls": map[string]any{"available": false}})
+		p.feed(map[string]any{"command": "bt_connection_changed", "map_open": false, "pbap_open": true, "calls": map[string]any{"available": false}})
 		return transportErr
 	}
 	if _, _, err := p.set.listCalls(t.Context(), nil, struct{}{}); !errors.Is(err, transportErr) || p.bus.sends != 1 {

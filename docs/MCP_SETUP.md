@@ -149,9 +149,12 @@ does not send a message or change phone settings.
 
 ## Available tools
 
-The tools cover the same features as the web UI. They return typed results, and
-there is no raw daemon-command tool or live event subscription: agents read the
-current state when they need it and check the outcome of what they started.
+The tools cover the same features as the web UI and return typed results. There
+is no raw daemon-command tool. MCP 2026-07-28 clients can opt into bounded message
+and incoming-call change resources with standard `subscriptions/listen` POST/SSE.
+The agent host must read changes and schedule its own work; this server never
+wakes an LLM or acts on notifications. See [phone subscriptions](MCP_SUBSCRIPTIONS.md)
+for the wire protocol, cursor contract, and tested Go host-consumer example.
 
 | Area | Tools |
 | --- | --- |

@@ -183,6 +183,7 @@ func (t *Set) applyStatusEvent(event gateway.Event, command string) bool {
 		return false
 	}
 	t.applyProfileEvent(event, command)
+	t.observeChanges(event, command)
 	t.deliver(event, command)
 	return false
 }
@@ -209,6 +210,7 @@ func (t *Set) applyProfileEvent(event gateway.Event, command string) {
 			return
 		}
 		input.Available = *input.Present
+		t.checkChangeIdentity(event.Data)
 		input.DeviceAddress = boundedText(input.DeviceAddress, 128)
 		input.Version = boundedText(input.Version, 128)
 		input.Error = boundedText(input.Error, 1024)
@@ -220,6 +222,12 @@ func (t *Set) applyProfileEvent(event gateway.Event, command string) {
 			t.host = &settings
 		}
 	case "bt_connection_changed":
+		var present struct {
+			MAPOpen *bool `json:"map_open"`
+		}
+		if json.Unmarshal(event.Data, &present) != nil || present.MAPOpen == nil {
+			return
+		}
 		var input connectionStatus
 		if json.Unmarshal(event.Data, &input) != nil {
 			return
@@ -265,6 +273,9 @@ func (t *Set) deliver(event gateway.Event, command string) {
 }
 
 func (t *Set) clearConnection() {
+	t.resetChanges()
+	t.changePhone = ""
+	t.changeRetention = ""
 	t.isConnected = false
 	t.protocol = nil
 	t.bluetooth = nil

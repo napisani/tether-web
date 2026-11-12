@@ -231,7 +231,7 @@ func TestRunFailsClosedOnEventStreamLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	bus.closeOnce.Do(func() { close(bus.events) })
-	if err := set.Run(t.Context()); err == nil {
+	if err := set.Run(t.Context(), nil); err == nil {
 		t.Fatal("closed event stream did not fail")
 	}
 	_, result, err := set.getOperation(t.Context(), nil, operationInput{OperationID: output.OperationID})
