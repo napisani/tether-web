@@ -42,14 +42,23 @@ type window struct {
 	Observations   []observation `json:"observations"`
 }
 
+// The largest producer observation is a read-status batch: 100 handles of
+// 256 bytes, each byte expanding to at most six JSON bytes. Allow three bytes
+// per array entry, 1 KiB observation overhead, and 4 KiB window overhead.
+// This also covers the smaller message (1024+256 bytes) and call (1024+64)
+// identifiers. Keep both the encoded bound and the 128-observation check.
+const maxEncodedWindow = 128*(100*(256*6+3)+1024) + 4096
+
 func readWindow(ctx context.Context, session *mcp.ClientSession, uri string) (window, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Full escaped windows can approach 20 MB; keep transfer/decoding bounded
+	// without imposing the much smaller tool-enrichment deadline on them.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	result, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
 	if err != nil {
 		return window{}, err
 	}
-	if len(result.Contents) != 1 || len(result.Contents[0].Text) > 256<<10 {
+	if len(result.Contents) != 1 || len(result.Contents[0].Text) > maxEncodedWindow {
 		return window{}, errors.New("invalid change window")
 	}
 	var w window
@@ -152,60 +161,117 @@ func RunWithOptions(parent context.Context, endpoint string, httpClient *http.Cl
 	}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 4096), 64<<10)
-	cursors := make(map[string]window, 2)
-	acked := false
-	for scanner.Scan() {
-		if acked {
-			touchIdle()
-		} // SSE comments and blank lines are transport activity.
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		var event struct {
-			Method string `json:"method"`
-			Params struct {
-				URI  string         `json:"uri"`
-				Meta map[string]any `json:"_meta"`
-			} `json:"params"`
-		}
-		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event) != nil {
-			return errors.New("invalid SSE notification")
-		}
-		if event.Params.Meta[mcp.MetaKeySubscriptionID] != float64(1) {
-			return errors.New("wrong subscription ID")
-		}
-		if !acked {
-			if event.Method != "notifications/subscriptions/acknowledged" {
-				return errors.New("listen acknowledgment was not first")
+	// The scanner never waits for enrichment or callbacks. Each fixed URI has
+	// one pending invalidation slot; duplicates coalesce without losing the
+	// latest resource state. No unbounded event queue or worker pool is needed.
+	ack := make(chan struct{})
+	messages, calls := make(chan struct{}, 1), make(chan struct{}, 1)
+	scanned := make(chan struct{})
+	go func() {
+		defer close(scanned)
+		acked := false
+		for scanner.Scan() {
+			if ctx.Err() != nil {
+				return
 			}
-			touchIdle()
-			for _, uri := range []string{MessagesURI, CallsURI} {
-				w, err := readWindow(ctx, session, uri)
-				if err != nil {
-					return err
+			if acked {
+				touchIdle()
+			} // Comments and blank lines are activity.
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var event struct {
+				Method string `json:"method"`
+				Params struct {
+					URI  string         `json:"uri"`
+					Meta map[string]any `json:"_meta"`
+				} `json:"params"`
+			}
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event) != nil {
+				cancel(errors.New("invalid SSE notification"))
+				return
+			}
+			if event.Params.Meta[mcp.MetaKeySubscriptionID] != float64(1) {
+				cancel(errors.New("wrong subscription ID"))
+				return
+			}
+			if !acked {
+				if event.Method != "notifications/subscriptions/acknowledged" {
+					cancel(errors.New("listen acknowledgment was not first"))
+					return
 				}
-				cursors[uri] = w
+				touchIdle()
+				acked = true
+				close(ack)
+				continue
 			}
-			acked = true
-			if ready != nil {
-				ready()
+			if event.Method != "notifications/resources/updated" {
+				continue
 			}
-			continue
+			var dirty chan struct{}
+			switch event.Params.URI {
+			case MessagesURI:
+				dirty = messages
+			case CallsURI:
+				dirty = calls
+			default:
+				cancel(errors.New("unsolicited resource notification"))
+				return
+			}
+			select {
+			case dirty <- struct{}{}:
+			default:
+			}
 		}
-		if event.Method != "notifications/resources/updated" {
-			continue
+		if err := scanner.Err(); err != nil {
+			cancel(err)
+		} else {
+			cancel(errors.New("subscription ended; re-baseline required"))
 		}
-		prior, known := cursors[event.Params.URI]
-		if !known {
-			return errors.New("unsolicited resource notification")
-		}
-		w, err := readWindow(ctx, session, event.Params.URI)
+	}()
+	// Cancellation closes the HTTP body, interrupting Scan; join it on every
+	// exit, including callback rejection and resource/tool errors.
+	defer func() { cancel(nil); response.Body.Close(); <-scanned }()
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case <-ack:
+	}
+	cursors := make(map[string]window, 2)
+	for _, uri := range []string{MessagesURI, CallsURI} {
+		w, err := readWindow(ctx, session, uri)
 		if err != nil {
 			return err
 		}
-		cursors[event.Params.URI] = w
-		if prior.InstanceID != w.InstanceID || prior.Epoch != w.Epoch || !w.Available {
+		cursors[uri] = w
+	}
+	if ctx.Err() != nil {
+		return context.Cause(ctx)
+	}
+	if ready != nil {
+		ready()
+	}
+	for {
+		var uri string
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-messages:
+			uri = MessagesURI
+		case <-calls:
+			uri = CallsURI
+		}
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
+		prior := cursors[uri]
+		w, err := readWindow(ctx, session, uri)
+		if err != nil {
+			return err
+		}
+		cursors[uri] = w
+		if prior.InstanceID != w.InstanceID || prior.Epoch != w.Epoch || !prior.Available || !w.Available {
 			continue
 		}
 		if prior.Cursor+1 < w.OldestRevision {
@@ -236,16 +302,22 @@ func RunWithOptions(parent context.Context, endpoint string, httpClient *http.Cl
 			if result.IsError {
 				return errors.New("phone read unavailable; re-baseline")
 			}
+			// Tool reads are not atomic with resource epochs (for example a
+			// retention change can occur while enrichment is in flight).
+			current, err := readWindow(ctx, session, uri)
+			if err != nil {
+				return err
+			}
+			if current.InstanceID != w.InstanceID || current.Epoch != w.Epoch || !current.Available {
+				cursors[uri] = current
+				break // Re-baseline and discard the entire old-window remainder.
+			}
+			if ctx.Err() != nil {
+				return context.Cause(ctx)
+			}
 			if err := enqueue(Work{Kind: kind, ThreadID: o.ThreadID, Handle: o.Handle, Path: o.Path, Result: result}); err != nil {
 				return err
 			}
 		}
 	}
-	if ctx.Err() != nil {
-		return nil
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return errors.New("subscription ended; re-baseline required")
 }

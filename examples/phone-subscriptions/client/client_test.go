@@ -16,6 +16,33 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func TestReadWindowAcceptsMaximumEscapedReadStatusBatches(t *testing.T) {
+	f := newHostFixture(t)
+	handles := make([]string, 100)
+	for i := range handles {
+		handles[i] = strings.Repeat("\x01", 256)
+	}
+	observations := make([]map[string]any, 128)
+	for i := range observations {
+		observations[i] = map[string]any{"revision": i + 1, "kind": "read_status_reported", "handles": handles, "read": true}
+	}
+	data, err := json.Marshal(map[string]any{"instance_id": "one", "epoch": 1, "cursor": 128, "revision": 128, "oldest_revision": 1, "available": true, "history_ambiguous": true, "observations": observations})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("valid encoded window: %d bytes", len(data))
+	f.mu.Lock()
+	f.rawText = string(data)
+	f.mu.Unlock()
+	w, err := readWindow(t.Context(), f.session, MessagesURI)
+	if err != nil {
+		t.Fatalf("valid full producer window rejected: %v", err)
+	}
+	if len(w.Observations) != 128 || w.Cursor != 128 {
+		t.Fatalf("window truncated: %+v", w)
+	}
+}
+
 func TestRunAcknowledgmentTimeoutIncludesHTTPHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.Copy(io.Discard, r.Body); <-r.Context().Done() }))
 	defer server.Close()
@@ -42,6 +69,8 @@ func TestRunAcknowledgmentTimeoutIncludesHTTPHeaders(t *testing.T) {
 type hostFixture struct {
 	mu         sync.Mutex
 	value      window
+	rawText    string
+	toolHook   func(context.Context)
 	reads      chan string
 	stream     chan string
 	session    *mcp.ClientSession
@@ -56,14 +85,23 @@ func newHostFixture(t *testing.T) *hostFixture {
 	for _, uri := range []string{MessagesURI, CallsURI} {
 		sdk.AddResource(&mcp.Resource{URI: uri, Name: uri}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 			f.mu.Lock()
-			w := f.value
+			w, raw := f.value, f.rawText
 			f.mu.Unlock()
 			data, _ := json.Marshal(w)
+			if raw != "" {
+				data = []byte(raw)
+			}
 			f.reads <- req.Params.URI
 			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: req.Params.URI, Text: string(data)}}}, nil
 		})
 	}
-	mcp.AddTool(sdk, &mcp.Tool{Name: "list_messages"}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+	mcp.AddTool(sdk, &mcp.Tool{Name: "list_messages"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+		f.mu.Lock()
+		hook := f.toolHook
+		f.mu.Unlock()
+		if hook != nil {
+			hook(ctx)
+		}
 		return &mcp.CallToolResult{}, map[string]any{}, nil
 	})
 	mcp.AddTool(sdk, &mcp.Tool{Name: "list_calls"}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, map[string]any, error) {
@@ -82,6 +120,9 @@ func newHostFixture(t *testing.T) *hostFixture {
 		for {
 			select {
 			case line := <-f.stream:
+				if line == "" {
+					return
+				}
 				fmt.Fprint(w, line)
 				w.(http.Flusher).Flush()
 			case <-r.Context().Done():
@@ -185,6 +226,145 @@ func TestRunKeepaliveCommentsResetIdleWithoutLifetimeLimit(t *testing.T) {
 	}
 }
 
+func TestRunKeepalivesDuringCumulativeEnrichment(t *testing.T) {
+	f := newHostFixture(t)
+	f.toolHook = func(ctx context.Context) {
+		select {
+		case <-time.After(80 * time.Millisecond):
+		case <-ctx.Done():
+		}
+	}
+	jobs := make(chan Work, 8)
+	cancel, done := f.start(t, Options{IdleTimeout: 120 * time.Millisecond}, func(w Work) error { jobs <- w; return nil })
+	feedCtx, stop := context.WithCancel(t.Context())
+	defer stop()
+	feeding := make(chan struct{})
+	go func() {
+		defer close(feeding)
+		ticker := time.NewTicker(20 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-feedCtx.Done():
+				return
+			case <-ticker.C:
+				select {
+				case f.stream <- ": keepalive\n\n":
+				case <-feedCtx.Done():
+					return
+				}
+			}
+		}
+	}()
+	defer func() { stop(); <-feeding }()
+	f.set(messageWindow("one", 1, 3, 1, "first", "second", "third"))
+	f.event("notifications/resources/updated")
+	for _, handle := range []string{"first", "second", "third"} {
+		select {
+		case job := <-jobs:
+			if job.Handle != handle {
+				t.Fatalf("job: %+v", job)
+			}
+		case err := <-done:
+			t.Fatalf("healthy stream expired during enrichment: %v", err)
+		case <-time.After(time.Second):
+			t.Fatal("enrichment stalled")
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunNotificationFloodDoesNotBlockLossOrCancellation(t *testing.T) {
+	for _, end := range []string{"cancel", "EOF", "invalid", "unknown_uri"} {
+		t.Run(end, func(t *testing.T) {
+			f := newHostFixture(t)
+			entered := make(chan struct{}, 1)
+			toolStopped := make(chan struct{})
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			defer unblock()
+			// Stateless SDK handlers need an explicit fixture release; HTTP
+			// request cancellation does not cancel their detached tool context.
+			f.toolHook = func(ctx context.Context) {
+				entered <- struct{}{}
+				select {
+				case <-ctx.Done():
+				case <-release:
+				}
+				close(toolStopped)
+			}
+			jobs := make(chan Work, 8)
+			cancel, done := f.start(t, Options{}, func(w Work) error { jobs <- w; return nil })
+			f.set(messageWindow("one", 1, 1, 1, "blocked"))
+			f.event("notifications/resources/updated")
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("no tool call")
+			}
+			// Much larger than either the transport buffer or fixed URI slots.
+			fed := make(chan struct{})
+			go func() {
+				defer close(fed)
+				for i := 0; i < 1000; i++ {
+					f.event("notifications/resources/updated")
+				}
+				switch end {
+				case "cancel":
+					cancel()
+				case "EOF":
+					f.stream <- ""
+				case "invalid":
+					f.stream <- "data: broken-json\n\n"
+				case "unknown_uri":
+					f.stream <- `data: {"method":"notifications/resources/updated","params":{"uri":"unknown","_meta":{"io.modelcontextprotocol/subscriptionId":1}}}` + "\n\n"
+				}
+			}()
+			select {
+			case <-fed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("notification flood blocked scanner")
+			}
+			select {
+			case err := <-done:
+				if end == "cancel" && err != nil {
+					t.Fatalf("external cancellation: %v", err)
+				}
+				if end != "cancel" && err == nil {
+					t.Fatal("stream loss did not fail closed")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("consumer did not cancel in-flight enrichment")
+			}
+			unblock()
+			select {
+			case <-toolStopped:
+			case <-time.After(time.Second):
+				t.Fatal("tool handler leaked")
+			}
+			if len(jobs) != 0 {
+				t.Fatal("work escaped after stream loss")
+			}
+		})
+	}
+}
+
+func TestRunAcknowledgmentMustBeFirst(t *testing.T) {
+	f := newHostFixture(t)
+	f.event("notifications/resources/updated")
+	err := Run(t.Context(), f.endpoint, f.httpClient, f.session, nil, func(Work) error { t.Fatal("unexpected work"); return nil })
+	if err == nil || !strings.Contains(err.Error(), "acknowledgment was not first") {
+		t.Fatalf("ack ordering: %v", err)
+	}
+	if len(f.reads) != 0 {
+		t.Fatal("baseline read before acknowledgment")
+	}
+}
+
 func TestRunExternalCancellationBeforeHeadersIsNil(t *testing.T) {
 	entered := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +401,69 @@ func nextJob(t *testing.T, jobs <-chan Work) Work {
 		return Work{}
 	}
 }
+func TestHostConsumerContextChangesDuringEnrichment(t *testing.T) {
+	for _, change := range []string{"retention_epoch", "instance", "unavailable"} {
+		t.Run(change, func(t *testing.T) {
+			f := newHostFixture(t)
+			entered, release := make(chan struct{}, 4), make(chan struct{})
+			f.toolHook = func(ctx context.Context) {
+				entered <- struct{}{}
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
+			jobs := make(chan Work, 8)
+			cancel, done := f.start(t, Options{}, func(w Work) error { jobs <- w; return nil })
+			f.set(messageWindow("one", 1, 2, 1, "stale", "stale-remainder"))
+			f.event("notifications/resources/updated")
+			f.awaitRead(t)
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("no enrichment")
+			}
+			fresh := messageWindow("one", 1, 2, 1, "baseline", "baseline2")
+			switch change {
+			case "retention_epoch":
+				fresh.Epoch = 2
+			case "instance":
+				fresh.InstanceID = "two"
+			case "unavailable":
+				fresh.Available = false
+			}
+			f.set(fresh)
+			close(release)
+			select {
+			case job := <-jobs:
+				t.Fatalf("stale work enqueued after context change: %+v", job)
+			case <-f.reads:
+			case <-time.After(time.Second):
+				t.Fatal("no post-enrichment context check")
+			}
+			// Recovery is itself a baseline; only the following observation is work.
+			fresh.Available = true
+			f.set(fresh)
+			f.event("notifications/resources/updated")
+			f.awaitRead(t)
+			fresh.Cursor = 3
+			fresh.Observations = append(fresh.Observations, observation{Revision: 3, Kind: "message_observed", ThreadID: "thread", Handle: "live"})
+			f.set(fresh)
+			f.event("notifications/resources/updated")
+			if job := nextJob(t, jobs); job.Handle != "live" {
+				t.Fatalf("stale remainder or baseline delivered: %+v", job)
+			}
+			cancel()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			if len(jobs) != 0 {
+				t.Fatal("extra stale jobs")
+			}
+		})
+	}
+}
+
 func TestHostConsumerChangedContextSuppressesBaseline(t *testing.T) {
 	for _, change := range []string{"instance", "epoch"} {
 		t.Run(change, func(t *testing.T) {

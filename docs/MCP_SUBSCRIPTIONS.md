@@ -83,6 +83,17 @@ not one notification per observation. Multiple updates, duplicate notifications,
 and notifications arriving during a baseline read are normal: revisions and the
 post-acknowledgment baseline close that race.
 
+The consumer accepts at most 19,834,368 encoded JSON-text bytes per window:
+`128 * (100 * (256 * 6 + 3) + 1024) + 4096`. This derives from the largest
+producer observation (100 handles of 256 bytes), sixfold JSON escaping, three
+array-entry delimiter bytes, 1 KiB per-observation overhead, and 4 KiB window
+overhead. Message identifiers (1024-byte thread plus 256-byte handle) and call
+identifiers (1024-byte path plus 64-byte state) are smaller. It separately checks
+the 128-observation limit. This is a bound on resource text after SDK decoding,
+not a transport-response memory cap; the SDK receives the response first.
+Resource reads have a 15-second deadline (large escaped windows can approach
+20 MB); each tool enrichment retains its five-second deadline.
+
 An epoch changes and sensitive observations are cleared on generation/profile
 loss, profile recovery, phone identity changes, or retention-policy changes.
 A phone change invalidates profile readiness until fresh daemon connection status.
@@ -141,8 +152,14 @@ silence to 45 seconds. `RunWithOptions` accepts `AcknowledgmentTimeout` and
 reset the idle deadline but do not extend the initial acknowledgment deadline.
 A healthy stream has no total lifetime limit. Timeout errors explicitly require
 re-baselining; external context cancellation returns nil, including before HTTP
-headers arrive. Callbacks must return promptly, within the idle limit. The helper
-reads and delivers work synchronously; it cannot interrupt a blocked callback.
+headers arrive. A dedicated scanner tracks stream activity independently of
+baseline reads, serial enrichment, and callback delivery. It maintains one pending
+invalidation slot per fixed URI (two total); duplicates coalesce, rather than
+allocating work or blocking scanning. The next resource read sees current state;
+retention overflow is still a cursor gap and fails closed. Stream loss cancels
+in-flight reads, and the scanner is closed and joined before return. Callbacks
+must still be bounded and return promptly: the helper invokes them serially and
+cannot interrupt a blocked callback, but callback duration is not stream silence.
 
 A host can connect with SDK v1.8.0, then integrate this helper as follows:
 
@@ -163,7 +180,12 @@ err := phoneclient.Run(ctx, endpoint, httpClient, session,
 ```
 
 The helper takes a post-acknowledgment baseline, ignores old revisions and changed
-epochs, reads `list_messages`/`list_calls` before callback delivery, and fails on a
+epochs, reads `list_messages`/`list_calls` before callback delivery, then re-reads
+the resource to check instance, epoch, and availability **after each enrichment,
+before enqueue**. A changed context discards that result and the old window's
+remainder and records the new baseline; recovery is also baselined before new work.
+This narrows the stale-result race, not an atomic transaction with subsequent
+phone changes or the host queue. The helper fails on a
 window gap, enqueue rejection, timeout, or stream loss. Cursor advancement prevents
 duplicate invalidations from delivering the same jobs again. On delivery errors,
 the helper exits without retrying or replaying the current window. The example
@@ -294,5 +316,15 @@ Actual checks after these corrections, using official Go 1.25.8:
   `mcp_enabled=true`.
 - `git diff --check`: passed.
 
-No upstream, gateway, domain client, or UI behavior was changed. These corrections
-are committed locally only; they were not pushed.
+### Consumer regression coverage
+
+The consumer regressions cover the maximum escaped producer window, context
+changes during enrichment (epoch, instance, and availability), and healthy
+keepalives while cumulative enrichment exceeds the idle deadline. Each regression
+failed against the original behavior before its correction passed.
+
+Additional tests cover coalescing a burst of 1,000 invalidations, cancellation,
+EOF, malformed notifications, unknown URIs, and acknowledgment-first ordering.
+The focused consumer race tests passed 20 repetitions; the full Go race suite
+and `go vet ./...` also passed. No daemon, gateway, server protocol, or UI changes
+were needed.
