@@ -18,10 +18,14 @@ function fold(value: string): string {
 
 function ContactCard({
   contact,
+  callsReady,
+  onCall,
   onMessage,
   onCopy,
 }: {
   contact: ContactSuggestion;
+  callsReady: boolean;
+  onCall?: (number: string) => void;
   onMessage: (address: string, name: string) => void;
   onCopy: (address: string) => void;
 }) {
@@ -51,6 +55,16 @@ function ContactCard({
                   {key.startsWith("tel:") ? "Phone" : "Email"}
                 </span>
                 <span className="contact-address-value">{address}</span>
+                {callsReady && onCall && key.startsWith("tel:") && Boolean(address.trim()) &&
+                  address.length <= 256 && (
+                    <button
+                      type="button"
+                      onClick={() => onCall(address)}
+                      aria-label={`Call ${address}`}
+                    >
+                      Call
+                    </button>
+                  )}
                 <button
                   type="button"
                   onClick={() => onCopy(address)}
@@ -78,12 +92,16 @@ export function ContactsView({
   contacts,
   daemonConnected,
   available,
+  callsReady,
+  onCall,
   onMessage,
   onOpenDevices,
 }: {
   contacts: Contacts;
   daemonConnected: boolean;
   available: boolean;
+  callsReady?: boolean;
+  onCall?: (number: string) => void;
   onMessage: (address: string, name: string) => void;
   onOpenDevices: () => void;
 }) {
@@ -163,6 +181,8 @@ export function ContactsView({
             <ContactCard
               key={`${contact.name}:${contact.addresses.join("|")}:${index}`}
               contact={contact}
+              callsReady={Boolean(callsReady && daemonConnected && onCall)}
+              onCall={onCall}
               onMessage={onMessage}
               onCopy={copy}
             />

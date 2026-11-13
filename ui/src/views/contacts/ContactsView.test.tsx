@@ -26,6 +26,32 @@ function model(partial: Partial<Contacts["state"]> = {}): Contacts {
 }
 
 describe("Contacts view", () => {
+  it("offers Call only for usable telephone rows while HFP is ready", () => {
+    const onCall = vi.fn<(number: string) => void>();
+
+    const props = {
+      contacts: model({
+        contacts: [{ name: "Ada", addresses: ["tel:1234", "tel:", "email:ada@example.com"] }],
+      }),
+      daemonConnected: true,
+      available: true,
+      callsReady: false,
+      onCall,
+      onMessage: () => {},
+      onOpenDevices: () => {},
+    };
+
+    const { rerender } = render(<ContactsView {...props} />);
+
+    fireEvent.click(screen.getByText("Ada"));
+    expect(screen.queryByRole("button", { name: "Call 1234" })).not.toBeInTheDocument();
+    rerender(<ContactsView {...props} callsReady />);
+    fireEvent.click(screen.getByRole("button", { name: "Call 1234" }));
+    expect(onCall).toHaveBeenCalledExactlyOnceWith("1234");
+    expect(screen.getAllByRole("button", { name: /^Call / })).toHaveLength(1);
+    rerender(<ContactsView {...props} callsReady daemonConnected={false} />);
+    expect(screen.queryByRole("button", { name: "Call +15550001" })).not.toBeInTheDocument();
+  });
   it("marks favorites accessibly without reordering daemon results", () => {
     render(
       <ContactsView
