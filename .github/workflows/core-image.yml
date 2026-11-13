@@ -13,12 +13,16 @@ on:
         description: Optional full upstream main SHA; tags as VERSION-upstream.SHORTSHA, never latest
         required: false
         default: ''
+      experimental_commit:
+        description: Full SHA on napisani/tether feat/targeted-send-file-capability; immutable experimental tag
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: core-image-${{ inputs.tether_tag }}-${{ inputs.upstream_commit }}
+  group: core-image-${{ inputs.tether_tag }}-${{ inputs.upstream_commit }}-${{ inputs.experimental_commit }}
   cancel-in-progress: false
 
 env:
@@ -32,15 +36,25 @@ jobs:
       version: ${{ steps.tag.outputs.version }}
       revision: ${{ steps.tag.outputs.revision }}
       latest: ${{ steps.tag.outputs.latest }}
+      source_repo: ${{ steps.tag.outputs.source_repo }}
     steps:
       - id: tag
         env:
           TAG: ${{ inputs.tether_tag }}
           COMMIT: ${{ inputs.upstream_commit }}
+          EXPERIMENTAL_COMMIT: ${{ inputs.experimental_commit }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -n "$COMMIT" ] && ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
             echo '::error::upstream_commit must be a full lowercase 40-character SHA'
+            exit 1
+          fi
+          if [ -n "$EXPERIMENTAL_COMMIT" ] && ! [[ "$EXPERIMENTAL_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::experimental_commit must be a full lowercase 40-character SHA'
+            exit 1
+          fi
+          if [ -n "$COMMIT" ] && [ -n "$EXPERIMENTAL_COMMIT" ]; then
+            echo '::error::Choose only one snapshot source'
             exit 1
           fi
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -62,6 +76,7 @@ jobs:
           fi
           latest_tag=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name)
           latest=$([ "$latest_tag" = "$TAG" ] && echo true || echo false)
+          source_repo="$UPSTREAM"
           if [ -n "$COMMIT" ]; then
             git init upstream
             git -C upstream fetch --no-tags "https://github.com/$UPSTREAM.git" main "$TAG"
@@ -73,6 +88,23 @@ jobs:
             revision="$COMMIT"
             version="$version-upstream.${COMMIT:0:7}"
             latest=false
+          fi
+          if [ -n "$EXPERIMENTAL_COMMIT" ]; then
+            source_repo=napisani/tether
+            fork_ref=$(git ls-remote "https://github.com/$source_repo.git" refs/heads/feat/targeted-send-file-capability)
+            if [ "${fork_ref%%[[:space:]]*}" != "$EXPERIMENTAL_COMMIT" ]; then
+              echo '::error::Experimental SHA is not the targeted-send branch tip'
+              exit 1
+            fi
+            git init experimental
+            git -C experimental fetch --no-tags "https://github.com/$source_repo.git" "$EXPERIMENTAL_COMMIT"
+            git -C experimental fetch --no-tags "https://github.com/$UPSTREAM.git" "$TAG"
+            git -C experimental merge-base --is-ancestor "$revision" "$EXPERIMENTAL_COMMIT"
+            revision="$EXPERIMENTAL_COMMIT"
+            version="$version-experimental.${EXPERIMENTAL_COMMIT:0:7}"
+            latest=false
+          fi
+          if [ -n "$COMMIT" ] || [ -n "$EXPERIMENTAL_COMMIT" ]; then
             # Snapshot names are immutable. Fail closed on unexpected registry errors.
             token=$(curl --fail --silent --show-error "https://ghcr.io/token?scope=repository:${IMAGE#ghcr.io/}:pull" | jq -er .token)
             for suffix in '' -amd64 -arm64; do
@@ -90,6 +122,7 @@ jobs:
             echo "version=$version"
             echo "revision=$revision"
             echo "latest=$latest"
+            echo "source_repo=$source_repo"
           } >> "$GITHUB_OUTPUT"
 
   build:
@@ -111,10 +144,12 @@ jobs:
     env:
       VERSION: ${{ needs.resolve.outputs.version }}
       REVISION: ${{ needs.resolve.outputs.revision }}
+      SOURCE_REPO: ${{ needs.resolve.outputs.source_repo }}
+      EXPERIMENTAL: ${{ inputs.experimental_commit }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.UPSTREAM }}
+          repository: ${{ env.SOURCE_REPO }}
           ref: ${{ needs.resolve.outputs.revision }}
           persist-credentials: false
       - name: Build and run upstream tests
@@ -123,12 +158,16 @@ jobs:
             --target test -f packaging/container/Dockerfile -t tether-tests:ci .
       - name: Build runtime
         run: |
+          description="Unofficial build of $SOURCE_REPO $VERSION for tether-web"
+          if [ -n "$EXPERIMENTAL" ]; then
+            description="Unofficial experimental build of $SOURCE_REPO $VERSION for tether-web"
+          fi
           docker build --progress=plain --build-arg TETHER_VERSION="$VERSION" \
             --label org.opencontainers.image.title=tether-core \
-            --label "org.opencontainers.image.description=Unofficial build of $UPSTREAM $VERSION for tether-web" \
+            --label "org.opencontainers.image.description=$description" \
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
-            --label "org.opencontainers.image.url=https://github.com/$UPSTREAM" \
-            --label "io.tether.upstream.source=https://github.com/$UPSTREAM" \
+            --label "org.opencontainers.image.url=https://github.com/$SOURCE_REPO" \
+            --label "io.tether.upstream.source=https://github.com/$SOURCE_REPO" \
             --label org.opencontainers.image.licenses=MIT \
             --label "org.opencontainers.image.version=$VERSION" \
             --label "org.opencontainers.image.revision=$REVISION" \
