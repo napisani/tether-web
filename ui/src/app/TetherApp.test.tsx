@@ -85,6 +85,61 @@ afterEach(() => {
 });
 
 describe("gateway event lifecycle", () => {
+  it("hands a contact phone to the guarded Calls flow only with capability and HFP", () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 202 }));
+    render(<TetherApp />);
+    const events = FakeEventSource.instances[0];
+    act(() => {
+      events.emit({ command: "gateway_status", daemon_connected: true });
+      events.emit({ command: "protocol_info", version: 1, capabilities: ["contacts"] });
+      events.emit({ command: "bt_status", available: true, calls_enabled: true });
+      events.emit({
+        command: "bt_connection_changed",
+        pbap_open: true,
+        calls: { available: true },
+      });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Contacts" }));
+    act(() => events.emit({
+      command: "bt_contacts",
+      query: "",
+      contacts: [{ name: "Ada", addresses: ["tel:1234"] }],
+    }));
+    fireEvent.click(screen.getByText("Ada"));
+    expect(screen.queryByRole("button", { name: "Call 1234" })).not.toBeInTheDocument();
+    act(() => events.emit({
+      command: "protocol_info",
+      version: 1,
+      capabilities: ["contacts", "calls"],
+    }));
+    act(() => events.emit({
+      command: "bt_connection_changed",
+      pbap_open: true,
+      calls: { available: false },
+    }));
+    expect(screen.queryByRole("button", { name: "Call 1234" })).not.toBeInTheDocument();
+    act(() => events.emit({
+      command: "bt_connection_changed",
+      pbap_open: true,
+      calls: { available: true },
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Call 1234" }));
+    expect(screen.getByRole("heading", { name: "Calls" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Number to call" })).toHaveValue("1234");
+    expect(screen.getByRole("button", { name: "Check iPhone" })).toBeDisabled();
+
+    const dials = () => vi.mocked(fetch).mock.calls
+      .map(([, init]) => parseCommandBody(requestBody(init)))
+      .filter((command) => command.command === "bt_call_dial");
+
+    expect(dials()).toEqual([{ command: "bt_call_dial", number: "1234" }]);
+    act(() => events.emit({ command: "bt_call_result", action: "dial", success: true }));
+    expect(screen.getByRole("button", { name: "Check iPhone" })).toBeDisabled();
+    expect(dials()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Contacts" }));
+    fireEvent.click(screen.getByText("Ada"));
+    expect(screen.queryByRole("button", { name: "Call 1234" })).not.toBeInTheDocument();
+  });
   it("uses the ordered event stream and recovers after EventSource reconnects", () => {
     const { unmount } = render(<TetherApp />);
     const events = FakeEventSource.instances[0];

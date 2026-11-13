@@ -11,7 +11,7 @@ import { useMessages, type MessagesState } from "../views/messages/useMessages";
 import { NotificationsView } from "../views/notifications/NotificationsView";
 import { useNotifications } from "../views/notifications/useNotifications";
 import { CallsView } from "../views/calls/CallsView";
-import { useCalls } from "../views/calls/useCalls";
+import { useCalls, type CallsState } from "../views/calls/useCalls";
 import { ContactsView } from "../views/contacts/ContactsView";
 import { useContacts } from "../views/contacts/useContacts";
 import { SettingsView } from "../views/settings/SettingsView";
@@ -28,6 +28,16 @@ function settingsSupported(protocol: ProtocolInfoEvent | undefined, current: boo
 
 function callsTabVisible(daemonConnected: boolean, status?: BluetoothStatusEvent): boolean {
   return daemonConnected && status?.calls_enabled === true;
+}
+
+function contactCallsReady(
+  connected: boolean,
+  capable: boolean,
+  enabled: boolean,
+  status: CallsState["status"],
+  pending: boolean,
+): boolean {
+  return connected && capable && enabled && status?.available === true && !pending;
 }
 
 function unreadMessageCount(connected: boolean, messages: MessagesState): number {
@@ -123,6 +133,20 @@ export function TetherApp() {
 
   const showCalls = callsTabVisible(state.daemon.connected, state.devices.bluetooth);
 
+  const canCallContact = contactCallsReady(
+    state.daemon.connected,
+    callsAvailable,
+    showCalls,
+    calls.state.status,
+    Boolean(calls.state.pending.dial),
+  );
+
+  const callContact = (number: string) => {
+    if (!canCallContact) return;
+    calls.sendAction("dial", "", number);
+    setRoute("calls");
+  };
+
   useAppShortcuts({
     onNavigate: setRoute,
     onNewMessage: () => {
@@ -184,6 +208,8 @@ export function TetherApp() {
           contacts={contacts}
           daemonConnected={state.daemon.connected}
           available={contactsAvailable}
+          callsReady={canCallContact}
+          onCall={callContact}
           onOpenDevices={() => setRoute("devices")}
           onMessage={(thread, name) => {
             messages.openThread(thread, name);

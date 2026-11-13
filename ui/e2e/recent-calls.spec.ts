@@ -21,3 +21,25 @@ test("recent history, guarded callback and favorite-first contacts", async ({ pa
   await expect(page.getByText("Dialing", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Check iPhone", exact: true })).toBeDisabled();
 });
+
+test("calls from a contact phone row through guarded Calls controls", async ({ page, request }) => {
+  const reset = await request.post("http://127.0.0.1:4174/__test/reset", {
+    data: { withCalls: true, withContacts: true },
+  });
+
+  expect(reset.ok()).toBe(true);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Contacts", exact: true }).click();
+  await page.getByText("Grace", { exact: true }).click();
+
+  const number = await page.locator(".contacts-list > li").first()
+    .locator(".contact-address-value").textContent();
+
+  await page.getByRole("button", { name: /^Call / }).click();
+  await expect(page.getByRole("heading", { name: "Calls", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Number to call" })).toHaveValue(number!);
+  await expect(page.getByRole("button", { name: "Check iPhone" })).toBeDisabled();
+  await page.getByRole("button", { name: "Contacts", exact: true }).click();
+  await page.getByText("Grace", { exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Call / })).toHaveCount(0);
+});

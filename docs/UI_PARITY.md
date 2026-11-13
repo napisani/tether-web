@@ -65,7 +65,7 @@ its ownership should still make the GTK/Web relationship obvious.
 | Messages | Partial | Thread list/search, grouped conversation history with safe links, per-thread drafts, contact suggestions and manual recipient input, correlated send results, mark-read requests, permission guidance, app-wide unread refresh and disconnect clearing, responsive navigation; user-validated on a physical phone | Broader device/permission matrix |
 | Notifications | Partial | ANCS list/refresh, app metadata and content, iPhone dismissal and removal, ANCS reason/permission guidance, reconnect cleanup, responsive navigation, opt-in redacted browser alerts | Physical-phone ANCS validation |
 | Calls | Partial | HFP availability, live call list, PBAP recent history (up to 100) with callback, dial/answer/decline/hang up, daemon-host/iPhone audio routing, network indicators, withheld numbers, reconnect and uncertain-outcome handling | Physical-phone HFP validation, contact completion, persistent call history (upstream PBAP history is memory-only) |
-| Contacts | Implemented locally | PBAP-gated bounded address-book refresh, accessible favorite markers and daemon favorite-first ordering, accent-insensitive name/address search, expandable phone/email details, copy and namespaced message-thread handoff, unavailable/error/reconnect states, responsive layout | Physical-phone PBAP validation |
+| Contacts | Implemented locally | PBAP-gated bounded address-book refresh, accessible favorite markers and daemon favorite-first ordering, accent-insensitive name/address search, expandable phone/email details, copy and namespaced message-thread handoff, HFP-gated Call from phone rows through guarded Calls flow, unavailable/error/reconnect states, responsive layout | Physical-phone PBAP/HFP validation |
 | Settings | Implemented locally | Daemon-global ANCS mirroring/content, call-control and retention controls; authoritative status, destructive-storage confirmation, keyring/privacy guidance, uncertain-outcome handling and reconnect cleanup; links to Devices for Bluetooth supervision | Headless/browser-inapplicable desktop tray, host desktop popups and away-lock documented below; physical-phone validation |
 | Shared helpers | Partial | Message formatting and contact suggestions in Messages; contact-to-message handoff; versioned browser-only alert preference | App-wide contact completion (where a browser flow needs it) |
 
@@ -91,6 +91,21 @@ History is memory-only upstream, not a durable log. Contacts preserve daemon
 ordering (favorites first), mark true favorites accessibly, and accept absent/false
 metadata from older daemons. Favorites are not independently sorted by the browser.
 Physical-phone PBAP/HFP validation remains separate from fake-daemon tests.
+
+## Contact-card calling (post-audit implementation)
+
+Upstream [#241](https://github.com/zackb/tether/pull/241) adds Call to GTK
+telephone rows when HFP is available and hands the number to its Calls view.
+The web offers the action only for nonempty telephone addresses when tetherd
+is connected, `calls` is advertised, host call control is enabled, Hands-Free
+is available, and no dial is pending. The selected number enters the existing
+`useCalls.sendAction("dial")` path before navigating to Calls: pending/uncertain
+results, global uncorrelated `bt_call_result`, and reconnect handling remain
+owned by that flow. A pending dial hides the contact action until the user
+checks the iPhone and explicitly enables retry in Calls. No `tel:` key is sent
+to `bt_call_dial`; no new protocol command is needed. Unit/integration tests
+cover gating and handoff; fake-daemon Playwright covers desktop and mobile.
+Actual phone dialing remains unverified without physical-device testing.
 
 ## Delivery sequence
 

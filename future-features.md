@@ -46,19 +46,19 @@ Statuses: *missing* means the web client has no support. *Partial* means some su
 
 ## New findings from the 2026-11-13 full-range audit
 
-The statuses below are independent client assessments. These are backlog findings, **not implementations**. Every upstream link pins a commit in `bcf83b1..adb03f6`; the two older partial UI items above remain open with MCP statuses now reconciled. The existing recent-calls item remains complete.
+The statuses below are independent client assessments from the audit checkpoint; implementation progress is recorded per item below. Every upstream link pins a commit in `bcf83b1..adb03f6`; the two older partial UI items above remain open with MCP statuses now reconciled. The existing recent-calls item remains complete.
 
-- [ ] **Call a phone number directly from a contact card**
-  - Web UI status: missing. MCP status: implemented (`dial_call` already accepts a number).
+- [x] **Call a phone number directly from a contact card** *(web implemented after audit)*
+  - Web UI status: implemented locally. MCP status: implemented (`dial_call` already accepts a number).
   - Upstream evidence: [`09c8414`](https://github.com/zackb/tether/commit/09c84149bee89665dd4f1b13d8a53368fde418f4) / [#241](https://github.com/zackb/tether/pull/241).
   - Surface change: GTK Contacts adds a Call action to telephone rows when HFP calls are available, handing off to its existing dial flow.
   - Protocol/daemon: existing `bt_call_dial`, `bt_connection_changed.calls.available`, and global `bt_call_result`; no new command or request correlation.
-  - Web touchpoints: `ui/src/views/contacts/ContactsView.tsx` shows message handoff and contact details but no call action; `ui/src/views/calls/useCalls.ts` owns guarded dialing.
+  - Web touchpoints: `ui/src/views/contacts/ContactsView.tsx` offers Call on usable telephone rows; `ui/src/app/TetherApp.tsx` gates on the current daemon, `calls` capability, host Calls setting, HFP readiness, and pending dial, then hands the number to `ui/src/views/calls/useCalls.ts` and opens Calls. No extra daemon command or protocol field.
   - MCP impact: no tool change; `internal/mcpserver/tools/calls.go` already registers `dial_call` with uncertain-outcome protection.
   - Parity states: omit/disable Call without a telephone address or HFP availability; preserve the existing pending/uncertain dial and reconnect rules rather than directly sending a second dial.
-  - Web acceptance: an available contact telephone action reaches the guarded Calls dial flow; unavailable calls do not offer an actionable control.
+  - Web acceptance: an available contact telephone action reaches the guarded Calls dial flow; unavailable calls do not offer an actionable control. `ContactsView.test.tsx` covers telephone/email/empty-address gating and handoff; `TetherApp.test.tsx` covers missing capability, HFP loss/recovery, guarded single dial and global result; `ui/e2e/recent-calls.spec.ts` covers desktop/mobile browser navigation and pending retry guard.
   - MCP acceptance: existing `dial_call` works for a number from `search_contacts`; see `internal/mcpserver/tools/actions_test.go`.
-  - Dependencies/blockers: None.
+  - Dependencies/blockers: None for this feature. Fake-daemon browser tests do not validate a physical phone.
 
 - [ ] **Release/reclaim Bluetooth profiles and yield messages/contacts when inactive**
   - Web UI status: missing. MCP status: partial (current `get_status` has profile open/error fields, not `*_held` or the yield preference; no control tool).
@@ -166,7 +166,7 @@ The statuses below are independent client assessments. These are backlog finding
   - Parity states: zero/one/multiple recipients, target disconnect between staging and send, stale fingerprint after reconnect, cancellation and operation expiry, and potential ambiguous send; never silently downgrade an explicit target to broadcast.
   - Web acceptance: user sees the selected paired recipient and one upload reaches only that peer, with an error if it disappears; no implicit broadcast with multiple peers.
   - MCP acceptance: agent supplies/validates one current paired target before forwarding; correlated send result remains scoped to its operation; unknown delivery is not retried automatically.
-  - Dependencies/blockers: target must be safely propagated through the existing bounded shared upload transport; no upstream change.
+  - Dependencies/blockers: target must be safely propagated through the existing bounded shared upload transport. A previously deployed daemon silently ignores `send_file.target` while advertising the same version/capability as a target-aware daemon; the web cannot establish single-recipient safety from the current protocol. Do not offer targeted sending or claim it is safe without a trustworthy daemon-side compatibility signal and owner approval for an upstream change.
 
 ## Upstream review log
 
